@@ -1,0 +1,517 @@
+# 局域网分布式在线考试系统 - 技术设计文档 (TECH_DESIGN)
+
+## 1. 技术栈选择
+
+### 1.1 前端（Webview 渲染层）
+
+| 类别 | 技术 | 版本 | 说明 |
+|------|------|------|------|
+| UI 框架 | React | 18.x | 并发模式、Suspense、自动批量更新 |
+| UI 组件库 | Ant Design | 5.x | 表格、表单、弹窗等重度后台组件 |
+| 原子化 CSS | Tailwind CSS | 3.x | 布局、间距、响应式微调，与 AntD 互补 |
+| 路由 | React Router | 6.x | 基于 Data Router，嵌套路由 |
+| 全局状态 | Zustand | 4.x | 轻量、无样板代码，支持中间件持久化 |
+| 构建工具 | Vite | 5.x | 极快冷启动，原生 ESM，HMR |
+| 语言 | TypeScript | 5.x | 全栈类型安全 |
+
+### 1.2 后端（Tauri Core - Rust 层）
+
+| 类别 | 技术 | 说明 |
+|------|------|------|
+| 桌面运行时 | Tauri | 2.x，跨平台桌面壳，IPC 通信 |
+| 异步运行时 | Tokio | 高性能异步并发，处理 100~200 并发连接 |
+| WebSocket 服务 | tokio-tungstenite | 教师端作为 WS Server，学生端作为 WS Client |
+| 局域网发现 | mdns-sd | mDNS/Bonjour 协议，学生端自动发现教师端 |
+| HTTP 服务 | axum | 教师端内嵌轻量 HTTP 服务，供文件下载、题库分发 |
+| 加密 | aes-gcm + sha2 | 本地缓存 AES-256-GCM 加密，请求签名 SHA-256 |
+| 序列化 | serde + serde_json | Rust 结构体与 JSON 的双向序列化 |
+| 系统控制 | windows-rs / enigo | 热键拦截（学生端防作弊） |
+| 录屏 | scrap | 跨平台屏幕捕获 |
+
+### 1.3 数据库
+
+| 场景 | 技术 | 说明 |
+|------|------|------|
+| 教师端主库 | SQLite（sqlx） | 存储考试配置、题库、学生答卷、成绩 |
+| 学生端本地缓冲库 | SQLite（sqlx） | 离线缓存当前题目和答案，断网后可恢复 |
+| 文件格式 | WAL 模式 SQLite | 提高并发写入性能 |
+
+---
+
+## 2. 项目结构
+
+```
+xs-examination/
+├── doc/                          # 文档
+│   ├── PRD.md
+│   └── TECH_DESIGN.md
+│
+├── apps/
+│   ├── teacher/                  # 教师端 Tauri 应用
+│   │   ├── src-tauri/            # Rust 后端
+│   │   │   ├── src/
+│   │   │   │   ├── main.rs           # 入口，Tauri Builder
+│   │   │   │   ├── lib.rs            # 公共模块导出
+│   │   │   │   ├── commands/         # Tauri IPC 命令（前端可调用）
+│   │   │   │   │   ├── exam.rs       # 考试 CRUD
+│   │   │   │   │   ├── question.rs   # 题库管理
+│   │   │   │   │   ├── student.rs    # 学生状态管理
+│   │   │   │   │   └── score.rs      # 成绩批阅与导出
+│   │   │   │   ├── network/          # 网络服务
+│   │   │   │   │   ├── mdns.rs       # mDNS 服务广播
+│   │   │   │   │   ├── ws_server.rs  # WebSocket 服务端
+│   │   │   │   │   └── protocol.rs   # 消息协议结构体定义
+│   │   │   │   ├── db/               # 数据库访问层
+│   │   │   │   │   ├── mod.rs
+│   │   │   │   │   ├── migrations/   # SQL 迁移脚本
+│   │   │   │   │   └── models.rs     # 数据模型映射
+│   │   │   │   ├── crypto.rs         # AES 加密/解密、请求签名
+│   │   │   │   └── state.rs          # Tauri AppState（共享状态）
+│   │   │   ├── Cargo.toml
+│   │   │   └── tauri.conf.json
+│   │   │
+│   │   └── src/                  # React 前端（教师端 UI）
+│   │       ├── main.tsx
+│   │       ├── App.tsx
+│   │       ├── router/
+│   │       │   └── index.tsx         # React Router 路由表
+│   │       ├── pages/
+│   │       │   ├── Dashboard/        # 首页 - 考试列表
+│   │       │   ├── ExamCreate/       # 新建/编辑考试
+│   │       │   ├── QuestionImport/   # 题库导入
+│   │       │   ├── Monitor/          # 实时监考大屏
+│   │       │   ├── Grading/          # 主观题阅卷
+│   │       │   └── Report/           # 成绩报告
+│   │       ├── components/           # 公共 UI 组件
+│   │       │   ├── StudentCard/      # 监考大屏学生状态卡片
+│   │       │   ├── QuestionEditor/   # 题目编辑器
+│   │       │   └── ExamTimer/        # 倒计时组件
+│   │       ├── store/                # Zustand 状态
+│   │       │   ├── examStore.ts      # 考试状态
+│   │       │   ├── studentStore.ts   # 学生实时状态（监考用）
+│   │       │   └── uiStore.ts        # UI 状态（侧边栏收缩等）
+│   │       ├── hooks/                # 自定义 React Hooks
+│   │       │   ├── useWebSocket.ts   # WS 消息订阅
+│   │       │   └── useTauriCommand.ts# IPC 封装
+│   │       ├── services/             # 前端服务层（IPC 调用封装）
+│   │       │   ├── examService.ts
+│   │       │   └── importService.ts
+│   │       ├── types/                # TypeScript 类型定义
+│   │       │   └── index.ts
+│   │       └── styles/
+│   │           └── global.css        # Tailwind 入口 + 全局覆盖
+│   │
+│   └── student/                  # 学生端 Tauri 应用
+│       ├── src-tauri/
+│       │   └── src/
+│       │       ├── main.rs
+│       │       ├── commands/
+│       │       │   ├── answer.rs     # 答案保存（加密写入本地 DB）
+│       │       │   └── sync.rs       # 断网重连后答案同步
+│       │       ├── network/
+│       │       │   ├── mdns.rs       # mDNS 服务发现（查找教师端）
+│       │       │   └── ws_client.rs  # WebSocket 客户端
+│       │       ├── anti_cheat/
+│       │       │   ├── hotkey.rs     # 热键拦截
+│       │       │   ├── fullscreen.rs # 全屏锁定
+│       │       │   └── recorder.rs   # 屏幕录制（scrap）
+│       │       ├── db/
+│       │       │   ├── migrations/
+│       │       │   └── models.rs
+│       │       └── crypto.rs
+│       │
+│       └── src/                  # React 前端（学生端 UI）
+│           ├── pages/
+│           │   ├── Discovery/        # 自动发现考试/局域网搜索页
+│           │   ├── Login/            # 学号/姓名登录
+│           │   ├── WaitingRoom/      # 候考室
+│           │   ├── Exam/             # 考试主页面（沉浸模式）
+│           │   │   ├── QuestionPanel.tsx  # 题目显示区
+│           │   │   ├── ProgressBar.tsx    # 题号矩阵导航
+│           │   │   └── SubmitButton.tsx   # 交卷按钮（防误触）
+│           │   └── Result/           # 考试结束提示页
+│           ├── store/
+│           │   ├── examStore.ts      # 考试及题目数据
+│           │   ├── answerStore.ts    # 本地答案缓存
+│           │   └── networkStore.ts   # 网络连接状态
+│           └── hooks/
+│               ├── useAutoSync.ts    # 断网重连自动同步
+│               └── useAntiCheat.ts   # 防作弊监听
+│
+├── packages/
+│   └── shared-types/             # 前后端共享 TypeScript 类型（monorepo）
+│       ├── src/
+│       │   ├── exam.ts           # Exam、Question 等核心类型
+│       │   ├── protocol.ts       # WS 消息协议类型
+│       │   └── index.ts
+│       └── package.json
+│
+├── package.json                  # Monorepo 根（pnpm workspace）
+├── pnpm-workspace.yaml
+└── turbo.json                    # Turborepo 构建编排（可选）
+```
+
+---
+
+## 3. 数据模型
+
+### 3.1 教师端数据库（SQLite）
+
+```sql
+-- 考试表
+CREATE TABLE exams (
+    id          TEXT PRIMARY KEY,       -- UUID
+    title       TEXT NOT NULL,          -- 考试名称
+    description TEXT,                   -- 考试须知（富文本 HTML）
+    start_time  INTEGER,                -- Unix 时间戳（毫秒）
+    end_time    INTEGER,
+    pass_score  INTEGER NOT NULL,       -- 及格分数
+    status      TEXT NOT NULL DEFAULT 'draft',
+                                        -- draft | published | active | paused | finished
+    shuffle_questions INTEGER DEFAULT 0,-- 是否随机题序
+    shuffle_options   INTEGER DEFAULT 0,-- 是否随机选项序
+    created_at  INTEGER NOT NULL,
+    updated_at  INTEGER NOT NULL
+);
+
+-- 题目表
+CREATE TABLE questions (
+    id           TEXT PRIMARY KEY,
+    exam_id      TEXT NOT NULL REFERENCES exams(id) ON DELETE CASCADE,
+    seq          INTEGER NOT NULL,      -- 题目序号（原始顺序）
+    type         TEXT NOT NULL,         -- single | multi | judge | fill | essay
+    content      TEXT NOT NULL,         -- 题干（支持 Markdown）
+    options      TEXT,                  -- JSON 数组 [{"key":"A","text":"..."}]，客观题用
+    answer       TEXT NOT NULL,         -- 标准答案（客观题：选项key；主观题：参考答案）
+    score        INTEGER NOT NULL,      -- 分值
+    explanation  TEXT                   -- 解析（可选）
+);
+
+-- 学生表（每次考试独立注册）
+CREATE TABLE students (
+    id          TEXT PRIMARY KEY,
+    exam_id     TEXT NOT NULL REFERENCES exams(id),
+    student_no  TEXT NOT NULL,          -- 学号
+    name        TEXT NOT NULL,          -- 姓名
+    ip_addr     TEXT,                   -- 连接 IP
+    status      TEXT NOT NULL DEFAULT 'waiting',
+                                        -- waiting | active | submitted | offline | forced
+    join_time   INTEGER,
+    submit_time INTEGER,
+    UNIQUE(exam_id, student_no)
+);
+
+-- 答卷表
+CREATE TABLE answer_sheets (
+    id          TEXT PRIMARY KEY,
+    student_id  TEXT NOT NULL REFERENCES students(id),
+    exam_id     TEXT NOT NULL REFERENCES exams(id),
+    question_id TEXT NOT NULL REFERENCES questions(id),
+    answer      TEXT,                   -- 学生作答内容
+    is_correct  INTEGER,                -- 客观题自动评分结果（0/1/NULL）
+    score       INTEGER,                -- 最终得分（主观题手工填入）
+    synced_at   INTEGER,                -- 最后同步时间戳
+    PRIMARY KEY (student_id, question_id)
+);
+
+-- 成绩汇总表（考试结束后触发计算填入）
+CREATE TABLE score_summary (
+    id          TEXT PRIMARY KEY,
+    exam_id     TEXT NOT NULL REFERENCES exams(id),
+    student_id  TEXT NOT NULL REFERENCES students(id),
+    total_score INTEGER,
+    is_passed   INTEGER,
+    graded_at   INTEGER,
+    UNIQUE(exam_id, student_id)
+);
+
+-- 异常事件日志（防作弊告警）
+CREATE TABLE cheat_logs (
+    id          TEXT PRIMARY KEY,
+    student_id  TEXT NOT NULL REFERENCES students(id),
+    event_type  TEXT NOT NULL,          -- focus_lost | hotkey_detected | vm_detected | ...
+    detail      TEXT,
+    occurred_at INTEGER NOT NULL
+);
+```
+
+### 3.2 学生端本地缓冲数据库（SQLite，加密文件）
+
+```sql
+-- 当前考试快照（从教师端下发，AES-256-GCM 加密存储）
+CREATE TABLE local_exam (
+    id          TEXT PRIMARY KEY,
+    data        BLOB NOT NULL,          -- 加密后的考试元数据 JSON
+    expires_at  INTEGER NOT NULL
+);
+
+-- 本地答案缓存（离线时持续写入）
+CREATE TABLE local_answers (
+    question_id TEXT PRIMARY KEY,
+    answer      TEXT,
+    updated_at  INTEGER NOT NULL,
+    synced      INTEGER DEFAULT 0       -- 0: 未同步，1: 已同步
+);
+
+-- 网络同步队列（断网时积攒，重连后批量上传）
+CREATE TABLE sync_queue (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    payload     TEXT NOT NULL,          -- 加密序列化的消息体
+    created_at  INTEGER NOT NULL,
+    retry_count INTEGER DEFAULT 0
+);
+```
+
+### 3.3 WebSocket 消息协议（TypeScript 类型）
+
+```typescript
+// packages/shared-types/src/protocol.ts
+
+export type MessageType =
+  | 'EXAM_START'        // 教师端 → 广播：考试开始
+  | 'EXAM_PAUSE'        // 教师端 → 广播：考试暂停
+  | 'EXAM_END'          // 教师端 → 广播：考试结束
+  | 'FORCE_SUBMIT'      // 教师端 → 单播：强制交卷
+  | 'HEARTBEAT'         // 双向：心跳保活
+  | 'ANSWER_SYNC'       // 学生端 → 服务：答案同步
+  | 'SUBMIT'            // 学生端 → 服务：主动交卷
+  | 'STATUS_UPDATE'     // 学生端 → 服务：状态上报
+  | 'CHEAT_ALERT'       // 学生端 → 服务：防作弊告警
+
+export interface WsMessage<T = unknown> {
+  type: MessageType
+  timestamp: number           // Unix ms，用于防重放
+  signature: string           // HMAC-SHA256 签名
+  payload: T
+}
+
+export interface AnswerSyncPayload {
+  examId: string
+  studentId: string
+  answers: { questionId: string; answer: string }[]
+}
+
+export interface StatusUpdatePayload {
+  studentId: string
+  progress: number            // 已答题数
+  currentQuestion: number     // 当前题号
+}
+```
+
+---
+
+## 4. 关键技术点
+
+### 4.1 局域网自动发现（mDNS）
+
+**问题**：学生端打开后需零配置找到教师端，不能依赖手动输入 IP。
+
+**方案**：
+- 教师端启动考试服务时，通过 `mdns-sd` crate 广播服务记录：`_xs-exam._tcp.local.`，携带服务端口和考试 ID。
+- 学生端启动后执行 mDNS Browse，监听该服务类型，自动获取教师端 IP 和端口。
+- 同一局域网内若有多个教师端（集群场景），学生端列表展示所有可用考试供选择。
+
+```rust
+// 教师端广播示例（Rust）
+let mdns = ServiceDaemon::new()?;
+let service_info = ServiceInfo::new(
+    "_xs-exam._tcp.local.",
+    "teacher-node-1",
+    &hostname,
+    ip_addr,
+    port,
+    &[("exam_id", &exam_id)],
+)?;
+mdns.register(service_info)?;
+```
+
+---
+
+### 4.2 断网本地缓存与无感重连
+
+**问题**：局域网波动时学生作答不能中断，网络恢复后数据不能丢失。
+
+**方案**：三层容错设计
+
+1. **答案实时落盘**：每次学生切换题目或修改答案，立即写入本地 SQLite `local_answers` 表（同步写入，非异步防丢失）。
+2. **同步队列**：WS 连接断开时，待同步数据压入 `sync_queue`，并标记 `synced=0`。
+3. **后台重连器**：Tokio 后台任务每 3 秒尝试重连，重连成功后将队列中所有未同步记录批量发送，并更新 `synced=1`。
+
+```
+学生答题 → 写入 local_answers
+         → （若 WS 连接正常）直接发送 ANSWER_SYNC
+         → （若 WS 断开）写入 sync_queue
+                         ↓
+               后台重连任务（3s 轮询）
+                         ↓ 重连成功
+               批量发送 sync_queue → 清空队列
+```
+
+---
+
+### 4.3 客观题自动评分
+
+**问题**：交卷后需快速完成批量客观题评分。
+
+**方案**：
+- 题库导入时，标准答案加密存储在教师端，**不下发到学生端**（避免被截获）。
+- 学生交卷时，答卷上传至教师端，由 Rust 层在内存中进行批量比对（无 IO 瓶颈）。
+- 填空题支持配置"精确匹配"或"包含匹配"两种评分策略。
+- 评分完成后写入 `answer_sheets.is_correct` 和 `score_summary`，触发前端实时刷新。
+
+---
+
+### 4.4 本地数据 AES 加密存储
+
+**问题**：学生机器上的题库和答案不能被直接读取修改。
+
+**方案**：
+- 使用 `aes-gcm` crate（AES-256-GCM）对 SQLite 数据库文件整体加密（配合 SQLCipher），或对敏感字段单独加密存储为 BLOB。
+- 加密密钥 = `HMAC(考试ID + 学生ID + 设备指纹)`，由教师端在学生登录时下发密钥种子，本地派生实际密钥，避免密钥明文传输。
+- 学生端进程退出后，内存中的明文密钥即清除。
+
+---
+
+### 4.5 防作弊机制实现
+
+**问题**：在 Windows 环境下限制学生离开考试窗口。
+
+**方案**（Windows 优先）：
+
+| 功能 | 实现方式 |
+|------|---------|
+| 全屏锁定 | Tauri `window.set_fullscreen(true)` + 禁用窗口最小化按钮 |
+| Alt+Tab 拦截 | `windows-rs` 注册低级键盘钩子（`SetWindowsHookEx` LowLevel Keyboard） |
+| Win 键屏蔽 | 同上，拦截 VK_LWIN / VK_RWIN |
+| 焦点丢失检测 | Tauri `on_window_event` 监听 `Focused(false)`，触发 CHEAT_ALERT 上报 |
+| 静默录屏 | `scrap` crate 每 N 秒截帧，编码为 H.264 视频切片（ffmpeg-sys），考后上传 |
+
+---
+
+### 4.6 大并发 WebSocket 管理（教师端）
+
+**问题**：100~200 个学生同时连接，心跳和消息处理不能阻塞。
+
+**方案**：
+- 使用 Tokio 的 `task::spawn` 为每个学生 WS 连接独立分配异步任务。
+- 用 `DashMap<StudentId, WsSender>` 管理所有活跃连接句柄，支持无锁并发读写。
+- 心跳检测：每个连接独立 30s 超时 Timer，超时未收到 HEARTBEAT 则标记学生离线，通知前端更新监考大屏。
+- 广播消息（如考试开始/暂停）使用 `tokio::sync::broadcast` channel，O(1) 扇出到所有连接任务。
+
+```
+┌─────────────────────────────────┐
+│      Tokio Runtime               │
+│                                  │
+│  WS Listener Task                │
+│         │ accept()               │
+│         ▼                        │
+│  ┌─────────────────────────┐     │
+│  │  Per-Student Task (×N)  │     │
+│  │  - recv / send loop     │     │
+│  │  - heartbeat timeout    │     │
+│  │  - write to DB          │     │
+│  └─────────────────────────┘     │
+│                                  │
+│  broadcast::Sender ─────────────►│ → 所有 Per-Student Task
+└─────────────────────────────────┘
+```
+
+---
+
+### 4.7 请求签名防重放攻击
+
+**问题**：恶意学生可能抓包重放交卷请求，或提前获取试题。
+
+**方案**：
+- 所有 WS 消息附带 `timestamp`（Unix ms）和 `signature`（HMAC-SHA256）。
+- 教师端维护一个 最近 5 分钟已处理消息签名的滑动窗口集合（HashSet），收到重复签名直接丢弃。
+- 密钥在学生登录握手阶段通过一次性临时 Token 协商，每次考试会话独立。
+
+---
+
+### 4.8 Excel 题库导入与验证
+
+**问题**：题库格式错误需给出精确的行级错误提示。
+
+**方案**：
+- 使用 `calamine` crate（Rust）解析 Excel/.xlsx 文件。
+- 逐行验证：必填字段缺失、题型枚举合法性、选项与答案一致性等。
+- 错误以结构化列表返回前端，Ant Design `Table` 组件高亮显示具体行列错误。
+- 提供模板文件下载，模板包含示例行和字段说明注释。
+
+**Excel 模板列定义**：
+
+| 列名 | 说明 | 示例 |
+|------|------|------|
+| type | 题型 | single / multi / judge / fill / essay |
+| content | 题干 | 以下哪个是... |
+| option_a ~ option_e | 选项文本（客观题） | 选项内容 |
+| answer | 标准答案 | A 或 AB 或 对 或 填空答案 |
+| score | 分值 | 5 |
+| explanation | 解析（可选） | 因为... |
+
+---
+
+## 5. 前端架构关键设计
+
+### 5.1 Zustand Store 划分（教师端）
+
+```typescript
+// 考试状态（持久化到 localStorage）
+interface ExamStore {
+  currentExam: Exam | null
+  examStatus: ExamStatus
+  setExam: (exam: Exam) => void
+  updateStatus: (status: ExamStatus) => void
+}
+
+// 实时监考状态（不持久化，由 WS 实时更新）
+interface StudentStore {
+  students: Map<string, StudentRealTimeState>
+  updateStudent: (id: string, state: Partial<StudentRealTimeState>) => void
+  forceSubmit: (studentId: string) => Promise<void>
+}
+
+// StudentRealTimeState
+interface StudentRealTimeState {
+  studentNo: string
+  name: string
+  status: 'waiting' | 'active' | 'submitted' | 'offline'
+  progress: number        // 已答题数
+  lastHeartbeat: number   // 时间戳
+  alertCount: number      // 防作弊告警次数
+}
+```
+
+### 5.2 Tailwind + Ant Design 协同规范
+
+- **Ant Design**：负责复杂交互组件（Table、Form、Modal、DatePicker 等）。
+- **Tailwind CSS**：负责页面布局、间距、颜色微调、自定义卡片样式。
+- 在 `tailwind.config.ts` 中配置 `content` 路径，并设置 `corePlugins.preflight: false` 避免与 Ant Design 的 CSS Reset 冲突。
+
+```typescript
+// tailwind.config.ts
+export default {
+  content: ['./src/**/*.{tsx,ts}'],
+  corePlugins: {
+    preflight: false,   // 关闭 Tailwind reset，避免与 AntD 冲突
+  },
+  theme: {
+    extend: {
+      colors: {
+        primary: '#1677ff',   // 与 AntD 主色保持一致
+      },
+    },
+  },
+}
+```
+
+---
+
+## 6. 开发阶段规划对应技术实现
+
+| 版本 | 功能 | 重点技术实现 |
+|------|------|-------------|
+| V1.0 MVP | 创建考试、Excel 导入、学生登录答题、客观题自动评分、成绩导出 | mDNS 发现、WS 基础通信、本地 SQLite、断网缓存、客观题评分引擎 |
+| V1.5 | 主观题阅卷、防作弊全屏+热键拦截、录屏上传 | windows-rs 键盘钩子、scrap 录屏、阅卷工作流 API |
+| V2.0 | 教师端集群高可用、故障自动转移 | 基于 Raft 的状态同步或 SQLite WAL 共享 + Leader 选举 |
