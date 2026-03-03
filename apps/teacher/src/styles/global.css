@@ -1,0 +1,14 @@
+/* Tailwind CSS v4 — 跳过 preflight 避免与 Ant Design CSS Reset 冲突 */
+@import "tailwindcss/theme.css";
+@import "tailwindcss/utilities.css";
+
+/* AntD 样式重置（v5 推荐方式） */
+@import "antd/dist/reset.css";
+
+/* 自定义全局变量（与 AntD 主色保持一致） */
+@theme {
+  --color-primary: #1677ff;
+  --color-success: #52c41a;
+  --color-warning: #faad14;
+  --color-danger: #ff4d4f;
+}

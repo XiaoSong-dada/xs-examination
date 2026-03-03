@@ -1,0 +1,13 @@
+{
+  "name": "xs-examination",
+  "private": true,
+  "scripts": {
+    "dev:teacher": "pnpm --filter @xs/teacher tauri dev",
+    "dev:student": "pnpm --filter @xs/student tauri dev",
+    "build:teacher": "pnpm --filter @xs/teacher tauri build",
+    "build:student": "pnpm --filter @xs/student tauri build"
+  },
+  "devDependencies": {
+    "turbo": "^2.x"
+  }
+}
