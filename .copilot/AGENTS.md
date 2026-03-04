@@ -142,6 +142,86 @@ let exam = sqlx::query_as!(Exam, "SELECT * FROM exams WHERE id = ?", id)
     .await?;
 ```
 
+
+### 函数注释规范（必须遵守）
+
+**所有函数（包括 React 组件、自定义 Hook、服务层函数、Rust 命令函数、工具函数）上方必须添加注释**，说明三项内容：
+
+1. **函数作用**：这个函数做什么
+2. **参数说明**：每个参数的含义与类型
+3. **返回值说明**：返回什么，可能的错误情况
+
+#### TypeScript / React：使用 JSDoc 格式
+
+```typescript
+/**
+ * 创建新考试并持久化到数据库
+ *
+ * @param data - 考试创建表单数据，包含标题、题目列表、时长等
+ * @returns 创建成功后的完整考试对象（含服务器生成的 id 与 created_at）
+ * @throws 若 IPC 调用失败则抛出 AppError
+ */
+export async function createExam(data: CreateExamInput): Promise<Exam> {
+  return invoke<Exam>('create_exam', { data })
+}
+
+/**
+ * 监控 WebSocket 心跳，超时后自动触发重连
+ *
+ * @param ws - 当前 WebSocket 实例
+ * @param timeoutMs - 心跳超时阈值（毫秒），默认 5000
+ * @returns 清理函数，组件卸载时调用以取消定时器
+ */
+export function useHeartbeat(ws: WebSocket | null, timeoutMs = 5000): () => void {
+  ...
+}
+
+/**
+ * 考试状态全局 Store
+ *
+ * @param set - Zustand 内部状态更新函数
+ * @returns ExamState 对象，包含当前考试信息与操作方法
+ */
+export const useExamStore = create<ExamState>((set) => ({
+  ...
+}))
+```
+
+#### Rust：使用 Rustdoc 格式（`///`）
+
+```rust
+/// 创建新考试记录并写入数据库
+///
+/// # 参数
+/// * `state` - Tauri 管理的应用全局状态（含数据库连接池）
+/// * `data`  - 前端传入的考试创建参数（标题、时长、题目 ID 列表等）
+///
+/// # 返回值
+/// 成功返回插入后的 `Exam` 对象（含自增 `id`）；
+/// 失败返回 `AppError`（数据库错误或参数校验失败）
+#[tauri::command]
+pub async fn create_exam(
+    state: tauri::State<'_, AppState>,
+    data: CreateExamInput,
+) -> Result<Exam, AppError> {
+    ...
+}
+
+/// 广播消息到当前房间内所有已连接的学生
+///
+/// # 参数
+/// * `sessions` - 所有在线 WebSocket 会话的共享映射（DashMap）
+/// * `msg`      - 待广播的 WS 消息体（已序列化为 JSON 字符串）
+///
+/// # 返回值
+/// 无返回值；发送失败的连接将被静默移除并记录到 tracing warn 日志
+pub async fn broadcast(sessions: &SessionMap, msg: &str) {
+    ...
+}
+```
+
+> **注意**：工具函数、私有辅助函数同样需要注释，可适当缩短，但必须覆盖参数与返回值描述。
+
 ---
 
 ## 4. 数据安全约定
