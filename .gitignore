@@ -23,3 +23,11 @@ dist-ssr
 *.sln
 *.sw?
 .vscode
+
+# env files containing secrets should not be committed
+apps/teacher/.env.*
+apps/student/.env.*
+
+# allow example templates
+!apps/teacher/.env.example
+!apps/student/.env.example
