@@ -90,6 +90,15 @@ xs-examination/
 | 表名 | 说明 |
 |------|------|
 | `exams` | 考试元数据（id, title, status, start/end_time, pass_score…） |
+
+---
+
+## 数据库迁移规范（提醒）
+
+所有模式变更应通过在 `src-tauri/migrations/` 下创建新的 SQL 脚本实现，
+例如 `0002_add_column.sql`。切勿直接在运行时的 Rust 代码里写
+`CREATE TABLE` 或 `ALTER TABLE`，这会绕过版本控制。sqlx 会在应用
+启动时自动执行未运行的迁移并记录历史。
 | `questions` | 题库（type: single/multi/judge/fill/essay, options JSON, answer, score） |
 | `students` | 考生注册（student_no, name, ip_addr, status） |
 | `answer_sheets` | 学生答卷（answer, is_correct, score） |

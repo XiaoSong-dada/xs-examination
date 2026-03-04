@@ -4659,6 +4659,7 @@ dependencies = [
  "calamine",
  "chrono",
  "dashmap",
+ "dotenvy",
  "hex",
  "hmac",
  "mdns-sd",

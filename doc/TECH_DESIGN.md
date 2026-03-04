@@ -35,6 +35,18 @@
 | 教师端主库 | SQLite（sqlx） | 存储考试配置、题库、学生答卷、成绩 |
 | 学生端本地缓冲库 | SQLite（sqlx） | 离线缓存当前题目和答案，断网后可恢复 |
 | 文件格式 | WAL 模式 SQLite | 提高并发写入性能 |
+### 数据库变更规范
+
+所有模式变更必须通过迁移文件实施。迁移位于
+`src-tauri/migrations/`，使用递增编号命名（例如
+`0002_add_column_to_questions.sql`）。每个文件应只描述一次
+DDL 变动，sqlx 的 `sqlx::migrate!("migrations")` 会在启动时自动
+依次执行未应用的脚本，并在 `_sqlx_migrations` 中记录版本。
+
+> 禁止在代码中直接使用 `CREATE TABLE IF NOT EXISTS` 进行结构
+> 修改；这会绕过版本管理并导致 schema 不一致。上一阶段的
+> schema 建表操作仅存在于迁移脚本，运行时读取这些脚本即可
+> 重建数据库。
 
 ---
 
