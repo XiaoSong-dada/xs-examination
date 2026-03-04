@@ -1,4 +1,7 @@
 pub mod commands;
+pub mod controllers;
+pub mod services;
+pub mod repos;
 pub mod config;
 pub mod crypto;
 pub mod db;
@@ -20,8 +23,7 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            commands::exam::get_exams,
-            commands::exam::create_exam,
+            controllers::exam_controller::get_exams
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

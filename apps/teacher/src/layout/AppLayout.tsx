@@ -9,7 +9,7 @@ import {
 import { Layout, Menu } from "antd";
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
 
-const { Content, Sider } = Layout;
+const { Content, Sider, Header } = Layout;
 
 const menuItems = [
 	{ key: "/", icon: <AppstoreOutlined />, label: "考试列表" },
@@ -48,6 +48,11 @@ export function AppLayout() {
 				/>
 			</Sider>
 			<Layout>
+				<Header className="bg-white border-b border-gray-200 p-4">
+					<div className="text-xl font-medium">
+						{ menuItems.find((item) => item.key === pathname)?.label ?? "页面"}
+					</div>
+				</Header>
 				<Content className="bg-gray-50 p-6 overflow-auto">
 					<Outlet />
 				</Content>
