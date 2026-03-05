@@ -10,11 +10,12 @@
     "tauri": "tauri"
   },
   "dependencies": {
-    "@xs/shared-types": "workspace:*",
     "@ant-design/icons": "^6.1.0",
     "@tauri-apps/api": "^2",
     "@tauri-apps/plugin-opener": "^2",
+    "@xs/shared-types": "workspace:*",
     "antd": "^6.3.1",
+    "dayjs": "^1.11.19",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "react-router-dom": "^7.13.1",

@@ -39,6 +39,15 @@
 | Vite | 5.x | 构建工具 |
 | TypeScript | 5.x | 全栈类型安全 |
 
+### 前端类型声明位置
+
+- 当 React 端需要声明类型（组件 Props、局部接口、辅助类型等）时，默认在 `src/types/main.ts` 中声明并导出；仅当类型需跨端或被后端共享时，才放在 `packages/shared-types/src/`。
+
+### 导入路径约定
+
+- 组件或模块之间引用时，若无特殊说明，统一使用 `@` 别名指向 `src/` 目录，例如 `import { useFoo } from "@/hooks/useFoo"`；避免大量相对路径 `../../`。
+
+
 ### 后端（Tauri Rust 层）
 
 | 技术 | 用途 |
@@ -96,7 +105,8 @@ xs-examination/
 ## 数据库迁移规范（提醒）
 
 所有模式变更应通过在 `src-tauri/migrations/` 下创建新的 SQL 脚本实现，
-例如 `0002_add_column.sql`。切勿直接在运行时的 Rust 代码里写
+例如 `0002_add_column.sql`。数据库的表结构默认由该目录中的迁移文件决定，
+运行时不要手动创建或修改表。切勿直接在运行时的 Rust 代码里写
 `CREATE TABLE` 或 `ALTER TABLE`，这会绕过版本控制。sqlx 会在应用
 启动时自动执行未运行的迁移并记录历史。
 | `questions` | 题库（type: single/multi/judge/fill/essay, options JSON, answer, score） |

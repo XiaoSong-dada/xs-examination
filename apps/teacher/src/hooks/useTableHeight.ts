@@ -32,7 +32,7 @@ export function useTableHeight(
       const containerH = container.clientHeight || container.getBoundingClientRect().height || window.innerHeight;
       const toolbarH = toolbarRef?.current?.offsetHeight ?? 0;
       const paginationH = paginationRef?.current?.offsetHeight ?? 0;
-      const headerH = headerRef?.current?.offsetHeight ?? 0;
+      const headerH = headerRef?.current?.offsetHeight ?? 88;
       // 额外留白，避免与分页/边距贴得太紧
       const extra = 16;
       const avail = Math.floor(containerH - toolbarH - paginationH - headerH - extra);

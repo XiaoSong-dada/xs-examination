@@ -23,7 +23,8 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            controllers::exam_controller::get_exams
+            controllers::exam_controller::get_exams,
+            controllers::exam_controller::create_exam,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

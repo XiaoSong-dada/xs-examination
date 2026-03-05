@@ -55,8 +55,10 @@
 | Zustand Store | `camelCase + Store.ts` | `store/examStore.ts` |
 | 自定义 Hook | `use + PascalCase.ts` | `hooks/useWebSocket.ts` |
 | 服务层（IPC 封装） | `camelCase + Service.ts` | `services/examService.ts` |
-| 类型定义 | 统一放 `types/index.ts` | — |
+| 类型定义 | 统一放 `src/types/main.ts` | — |
 | 样式入口 | `styles/global.css` | — |
+
+> **导入约定**：所有模块之间的引用在无特殊提示时应使用 `@/` 别名，例如 `import { useTableHeight } from "@/hooks/useTableHeight"`，以避免深层相对路径。
 
 ### Rust 文件命名
 
@@ -70,6 +72,7 @@
 
 - 前后端通信协议类型必须定义在 `packages/shared-types/src/` 中
 - 教师端前端和学生端前端均从 `@xs/shared-types` 导入，禁止各端自行重复定义协议类型
+ - 组件/页面或本端专用的类型（例如组件 Props、本地工具类型）默认在 `src/types/main.ts` 中声明并导出；跨端或需与后端共享的协议/接口类型仍放在 `packages/shared-types/src/`。
 
 ---
 

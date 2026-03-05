@@ -1,9 +1,21 @@
+import { IExamCreate } from "@/types/main";
 import { invoke } from "@tauri-apps/api/core";
 
 export interface ExamListItem {
   id: string;
   title: string;
   status: string;
+}
+
+
+/**
+ * 创建考试
+ *
+ * @param data - 考试创建表单数据
+ * @returns 创建成功后的完整考试对象
+ */
+export async function createExam(data: IExamCreate) {
+  return invoke('create_exam', { data });
 }
 
 /**

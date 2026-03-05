@@ -12,3 +12,8 @@
   --color-warning: #faad14;
   --color-danger: #ff4d4f;
 }
+
+.xs-pagination-nowrap {
+  flex-wrap: nowrap !important;
+  white-space: nowrap;
+}

@@ -1,8 +1,10 @@
 import { Button, Input, Pagination, Table, Tag } from "antd";
 import { useRef } from "react";
 import type { ColumnsType } from "antd/es/table";
-import { useExamList } from "../../hooks/useExamList";
-import type { ExamListItem } from "../../services/examService";
+import { useExamList } from "@/hooks/useExamList";
+import type { ExamListItem } from "@/services/examService";
+import { useTableHeight } from "@/hooks/useTableHeight";
+import { useNavigate } from "react-router-dom";
 
 const statusColorMap: Record<string, string> = {
   draft: "default",
@@ -35,6 +37,7 @@ export function DashboardPage() {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const toolbarRef = useRef<HTMLDivElement | null>(null);
   const paginationRef = useRef<HTMLDivElement | null>(null);
+  const tableHeight = useTableHeight(containerRef, toolbarRef, paginationRef);
 
   const columns: ColumnsType<ExamListItem> = [
     {
@@ -58,24 +61,44 @@ export function DashboardPage() {
     },
   ];
 
+  const navigate = useNavigate();
+
+  const handleCreateExam = () => {
+    navigate("/exam/create");
+  };
+
   return (
     <div className="space-y-4 h-full">
-      <div ref={containerRef} className="bg-white rounded-lg border border-gray-200 p-4 h-full">
-        <div ref={toolbarRef} className="bg-white rounded-lg flex items-center justify-between gap-4 pb-4">
-          <div className="flex-1 max-w-md">
-            <Input
-              value={inputKeyword}
-              allowClear
-              placeholder="按考试标题模糊查询"
-              onChange={(event) => setInputKeyword(event.target.value)}
-              onPressEnter={search}
-            />
+      <div
+        ref={containerRef}
+        className="bg-white rounded-lg border border-gray-200 p-4 h-full"
+      >
+        <div
+          ref={toolbarRef}
+          className="bg-white rounded-lg flex flex-col gap-5 pb-4 w-full"
+        >
+          <div className="flex gap-4 ">
+            <div className="flex-1 max-w-md">
+              <Input
+                value={inputKeyword}
+                allowClear
+                placeholder="按考试标题模糊查询"
+                onChange={(event) => setInputKeyword(event.target.value)}
+                onPressEnter={search}
+              />
+            </div>
+            <div className="flex items-center gap-2">
+              <Button type="primary" onClick={search}>
+                搜索
+              </Button>
+              <Button onClick={reset}>重置</Button>
+            </div>
           </div>
-          <div className="flex items-center gap-2">
-            <Button type="primary" onClick={search}>
-              搜索
+          <div className="flex gap-2">
+            <Button type="primary" onClick={handleCreateExam}>
+              新建考试
             </Button>
-            <Button onClick={reset}>重置</Button>
+            <Button>批量导入</Button>
           </div>
         </div>
 
@@ -85,10 +108,12 @@ export function DashboardPage() {
           dataSource={dataSource}
           columns={columns}
           pagination={false}
+          scroll={{ y: tableHeight }}
         />
 
-        <div ref={paginationRef} className="mt-4 flex justify-end">
+        <div ref={paginationRef} className="mt-4 flex justify-end overflow-x-auto">
           <Pagination
+            className="xs-pagination-nowrap"
             current={page}
             pageSize={pageSize}
             total={total}
