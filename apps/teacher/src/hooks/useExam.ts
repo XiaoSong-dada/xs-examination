@@ -1,4 +1,4 @@
-import { useCallback, useState, createContext, useEffect, useMemo } from "react";
+import { useCallback, useState, useEffect, useMemo } from "react";
 import useExamState from "./useDict";
 import { IExamCreate } from "@/types/main";
 import { createExam as create, getExamList } from "@/services/examService";
