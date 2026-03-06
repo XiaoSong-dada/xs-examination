@@ -38,7 +38,8 @@
 |------|------|
 | ✅ 使用 Tauri 2.x IPC（`#[tauri::command]`） | 禁止直接暴露 HTTP 接口给前端调用 |
 | ✅ 使用 Tokio 异步运行时 | 禁止使用 `std::thread::spawn` 做 IO 密集任务 |
-| ✅ 使用 sqlx + SQLite | 禁止引入 diesel 或其他 ORM |
+| ✅ 使用 SeaORM 2.x（稳定版）+ SQLite | 禁止引入 diesel 或其他 ORM |
+| ✅ 使用 sqlx 迁移能力（仅 migrations） | 禁止在仓储层继续手写 SQL CRUD |
 | ✅ 使用 serde/serde_json 序列化 | 禁止手动拼接 JSON 字符串 |
 | ✅ 错误处理使用 `thiserror` + `anyhow` | 禁止直接 `.unwrap()` 或 `.expect()` 在生产代码路径 |
 
@@ -143,6 +144,30 @@ let db = state.db.lock().unwrap();  // 禁止
 let exam = sqlx::query_as!(Exam, "SELECT * FROM exams WHERE id = ?", id)
     .fetch_one(&pool)
     .await?;
+```
+
+### Rust ORM 访问规范（SeaORM）
+
+```rust
+// ✅ 正确：在 models/ 下维护实体模型，仓储层通过 Entity/ActiveModel 读写
+use crate::models::exam::{ActiveModel, Column, Entity as ExamEntity};
+use sea_orm::{EntityTrait, QueryOrder, ActiveModelTrait, Set};
+
+let list = ExamEntity::find()
+  .order_by_desc(Column::CreatedAt)
+  .all(db)
+  .await?;
+
+let exam = ActiveModel {
+  id: Set(id),
+  title: Set(title),
+  ..Default::default()
+}
+.insert(db)
+.await?;
+
+// ❌ 错误：在 repo 层继续手写 query/query_as 进行 CRUD
+sqlx::query("INSERT INTO exams ...")
 ```
 
 
@@ -252,7 +277,9 @@ pub async fn broadcast(sessions: &SessionMap, msg: &str) {
 - 所有 Schema 变更必须通过 `src-tauri/src/db/migrations/` 下的 `.sql` 迁移文件实现
 - 迁移文件命名：`{版本号}_{功能描述}.sql`，例：`0001_create_exams.sql`
 - 禁止在代码中手写 `CREATE TABLE IF NOT EXISTS` 做隐式建表
-- sqlx 使用 `query!` / `query_as!` 宏，保证编译期 SQL 正确性
+- sqlx 仅用于迁移与连接期初始化，不承担业务 CRUD
+- 业务 CRUD 统一使用 SeaORM 实体模型与仓储层
+- **若需列出或检查数据库表结构**，优先在 `src-tauri/src/db/migrations/` 目录查找已有迁移定义；若无对应文件，再考虑从模型代码或运行时反查。
 
 ---
 

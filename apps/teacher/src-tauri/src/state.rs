@@ -1,10 +1,10 @@
 use anyhow::Result;
 use dashmap::DashMap;
-use sqlx::SqlitePool;
+use sea_orm::DatabaseConnection;
 use tauri::AppHandle;
 
 pub struct AppState {
-    pub db: SqlitePool,
+    pub db: DatabaseConnection,
     pub connections: DashMap<String, String>,
 }
 

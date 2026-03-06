@@ -2,6 +2,7 @@ pub mod commands;
 pub mod controllers;
 pub mod services;
 pub mod repos;
+pub mod models;
 pub mod config;
 pub mod crypto;
 pub mod db;

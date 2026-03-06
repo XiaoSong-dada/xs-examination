@@ -15,7 +15,7 @@ export interface ExamListItem {
  * @returns 创建成功后的完整考试对象
  */
 export async function createExam(data: IExamCreate) {
-  return invoke('create_exam', { data });
+  return invoke('create_exam', { payload: data });
 }
 
 /**

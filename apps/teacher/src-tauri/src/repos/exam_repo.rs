@@ -1,44 +1,53 @@
 use anyhow::Result;
-use sqlx::SqlitePool;
+use sea_orm::{ActiveModelTrait, DatabaseConnection, EntityTrait, QueryOrder, Set};
 
-use crate::db::models::Exam as DbExam;
+use crate::models::exam::{ActiveModel, Column, Entity as ExamEntity, Model as ExamModel};
 
-pub async fn get_all_exams(pool: &SqlitePool) -> Result<Vec<DbExam>> {
-    let recs = sqlx::query_as::<_, DbExam>(
-        "SELECT id, title, description, start_time, end_time, pass_score, status, shuffle_questions, shuffle_options, created_at, updated_at FROM exams ORDER BY created_at DESC",
-    )
-    .fetch_all(pool)
-    .await?;
-    Ok(recs)
+/// 查询所有考试。
+///
+/// # 参数
+/// * `db` - SeaORM 数据库连接。
+///
+/// # 返回值
+/// 返回按 `created_at` 倒序排列的考试列表，查询失败时返回错误。
+pub async fn get_all_exams(db: &DatabaseConnection) -> Result<Vec<ExamModel>> {
+    let exams = ExamEntity::find()
+        .order_by_desc(Column::CreatedAt)
+        .all(db)
+        .await?;
+    Ok(exams)
 }
 
-pub async fn insert_exam(pool: &SqlitePool, id: String, title: String, now: i64) -> Result<DbExam> {
-    let status = "draft".to_string();
-    sqlx::query(
-        "INSERT INTO exams (id, title, status, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5)",
-    )
-    .bind(&id)
-    .bind(&title)
-    .bind(&status)
-    .bind(now)
-    .bind(now)
-    .execute(pool)
-    .await?;
-
-    // 返回插入的行
-    let exam = DbExam {
-        id,
-        title,
-        description: None,
-        start_time: None,
-        end_time: None,
-        pass_score: 0,
-        status,
-        shuffle_questions: 0,
-        shuffle_options: 0,
-        created_at: now,
-        updated_at: now,
+/// 插入一条考试记录。
+///
+/// # 参数
+/// * `db` - SeaORM 数据库连接。
+/// * `id` - 考试 UUID。
+/// * `title` - 考试标题。
+/// * `now` - 当前毫秒时间戳。
+///
+/// # 返回值
+/// 返回插入成功后的考试模型，插入失败时返回错误。
+pub async fn insert_exam(
+    db: &DatabaseConnection,
+    id: String,
+    title: String,
+    now: i64,
+) -> Result<ExamModel> {
+    let model = ActiveModel {
+        id: Set(id),
+        title: Set(title),
+        description: Set(None),
+        start_time: Set(None),
+        end_time: Set(None),
+        pass_score: Set(0),
+        status: Set("draft".to_string()),
+        shuffle_questions: Set(0),
+        shuffle_options: Set(0),
+        created_at: Set(now),
+        updated_at: Set(now),
     };
 
+    let exam = model.insert(db).await?;
     Ok(exam)
 }

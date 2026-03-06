@@ -15,3 +15,29 @@ export interface IExamCreate {
   shuffle_questions?: boolean | number;
   shuffle_options?: boolean | number;
 }
+
+export interface IExamEditor extends IExamCreate {
+  id: string;
+}
+
+export interface UseExamListResult {
+  loading: boolean;
+  inputKeyword: string;
+  appliedKeyword: string;
+  setInputKeyword: (value: string) => void;
+  search: () => void;
+  reset: () => void;
+  page: number;
+  pageSize: number;
+  setPage: (value: number) => void;
+  setPageSize: (value: number) => void;
+  total: number;
+  dataSource: ExamListItem[];
+  refresh: () => Promise<void>;
+}
+
+export interface ExamListItem {
+  id: string;
+  title: string;
+  status: string;
+}

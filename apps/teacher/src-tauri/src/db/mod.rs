@@ -1,6 +1,9 @@
 use std::fs;
 
 use anyhow::Result;
+use sea_orm::{
+    ConnectOptions, Database, DatabaseConnection,
+};
 use sqlx::{sqlite::SqliteConnectOptions, SqlitePool};
 use tauri::{AppHandle, Manager};
 
@@ -17,8 +20,8 @@ pub mod models;
 /// * `app_handle` - Tauri 应用句柄，用于获取系统数据目录路径。
 ///
 /// # 返回值
-/// 返回已连接的 `SqlitePool`；路径解析失败或连接失败时返回 `Err`。
-pub async fn init(app_handle: &AppHandle) -> Result<SqlitePool> {
+/// 返回已连接的 `DatabaseConnection`；路径解析失败或连接失败时返回 `Err`。
+pub async fn init(app_handle: &AppHandle) -> Result<DatabaseConnection> {
     let config = AppConfig::load()?;
 
     let app_data_dir = app_handle.path().app_data_dir()?;
@@ -56,5 +59,14 @@ pub async fn init(app_handle: &AppHandle) -> Result<SqlitePool> {
         .run(&pool)
         .await?;
 
-    Ok(pool)
+    drop(pool);
+
+    // SeaORM 使用 sqlite URL 建立连接，路径来自统一配置目录。
+    let db_url = format!("sqlite:{}", db_path.to_string_lossy());
+    let mut connect_options = ConnectOptions::new(db_url);
+    connect_options.max_connections(10);
+
+    let connection = Database::connect(connect_options).await?;
+
+    Ok(connection)
 }

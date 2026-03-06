@@ -54,10 +54,11 @@
 |------|------|
 | Tauri 2.x | 桌面运行时 + IPC 通信 |
 | Tokio | 异步运行时（高并发 100~200 连接） |
+| SeaORM 2.x（稳定版） | Rust 业务 ORM（实体模型 + 仓储层） |
 | tokio-tungstenite | WebSocket 服务端 / 客户端 |
 | mdns-sd | 局域网 mDNS 自动发现（`_xs-exam._tcp.local.`） |
 | axum | 教师端内嵌 HTTP 服务 |
-| sqlx + SQLite | 数据持久化（WAL 模式） |
+| sqlx + SQLite | 数据持久化与迁移执行（migrations） |
 | aes-gcm + sha2 | AES-256-GCM 加密 + HMAC-SHA256 签名 |
 | serde / serde_json | Rust ↔ JSON 序列化 |
 | calamine | 解析 Excel/.xlsx 题库文件 |
@@ -109,6 +110,8 @@ xs-examination/
 运行时不要手动创建或修改表。切勿直接在运行时的 Rust 代码里写
 `CREATE TABLE` 或 `ALTER TABLE`，这会绕过版本控制。sqlx 会在应用
 启动时自动执行未运行的迁移并记录历史。
+业务读写查询默认使用 SeaORM 实体模型（`src-tauri/src/models/`）和仓储层，
+不再在 repo 中直接写 SQL CRUD。
 | `questions` | 题库（type: single/multi/judge/fill/essay, options JSON, answer, score） |
 | `students` | 考生注册（student_no, name, ip_addr, status） |
 | `answer_sheets` | 学生答卷（answer, is_correct, score） |
