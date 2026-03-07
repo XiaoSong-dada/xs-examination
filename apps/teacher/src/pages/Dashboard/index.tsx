@@ -14,9 +14,18 @@ import {
 } from "antd";
 import { useRef, useEffect } from "react";
 import type { ColumnsType } from "antd/es/table";
+import dayjs, { type Dayjs } from "@/utils/dayjs";
 import type { ExamListItem, IExamCreate, IExamEditor } from "@/types/main";
 import { useTableHeight } from "@/hooks/useTableHeight";
-import { useExamModal, useExamList, useCreateExam } from "@/hooks/useExam";
+import {
+  useExamModal,
+  useExamList,
+  useCreateExam,
+  useUpdateExam,
+  useDeleteExam,
+} from "@/hooks/useExam";
+import { getExamById } from "@/services/examService";
+import { omitString } from "@/utils/utils";
 
 const statusColorMap: Record<string, string> = {
   draft: "default",
@@ -52,13 +61,88 @@ export function DashboardPage() {
   const toolbarRef = useRef<HTMLDivElement | null>(null);
   const paginationRef = useRef<HTMLDivElement | null>(null);
   const tableHeight = useTableHeight(containerRef, toolbarRef, paginationRef);
-  const {createExam} = useCreateExam();
+  const { createExam } = useCreateExam();
+  const { updateExam } = useUpdateExam();
+  const { deleteExam } = useDeleteExam();
+
+  const toPayload = (values: IExamEditor): IExamEditor => {
+    const toTimestamp = (value?: Dayjs | number | null) => {
+      if (value === undefined || value === null) {
+        return null;
+      }
+      if (typeof value === "number") {
+        return value;
+      }
+      return dayjs(value).valueOf();
+    };
+
+    return {
+      id: values.id,
+      title: values.title,
+      description: values.description,
+      start_time: toTimestamp(values.start_time),
+      end_time: toTimestamp(values.end_time),
+      pass_score: values.pass_score ?? 60,
+      status: values.status ?? "draft",
+      shuffle_questions: values.shuffle_questions ? 1 : 0,
+      shuffle_options: values.shuffle_options ? 1 : 0,
+    };
+  };
+
+  const handleEdit = async (id: string) => {
+    try {
+      const detail = await getExamById(id);
+      examModal.openEdit({
+        id: detail.id,
+        title: detail.title,
+        description: detail.description,
+        start_time: detail.start_time ? dayjs(detail.start_time) : null,
+        end_time: detail.end_time ? dayjs(detail.end_time) : null,
+        pass_score: detail.pass_score,
+        status: detail.status,
+        shuffle_questions: detail.shuffle_questions === 1,
+        shuffle_options: detail.shuffle_options === 1,
+      });
+    } catch (error) {
+      console.error("获取考试详情失败", error);
+      message.error("获取考试详情失败");
+    }
+  };
+
+  const handleDelete = (id: string) => {
+    Modal.confirm({
+      title: "确认删除",
+      content: "删除后不可恢复，是否继续？",
+      okText: "删除",
+      okButtonProps: { danger: true },
+      cancelText: "取消",
+      onOk: async () => {
+        const ok = await deleteExam(id);
+        if (ok) {
+          message.success("删除成功");
+          await refresh();
+        } else {
+          message.error("删除失败");
+        }
+      },
+    });
+  };
 
   const columns: ColumnsType<ExamListItem> = [
     {
       title: "考试标题",
       dataIndex: "title",
       key: "title",
+      width: 200,
+    },
+    {
+      title: "考试描述",
+      dataIndex: "description",
+      key: "description",
+      width: 300,
+      render: (description: string ) => (
+        <span>{omitString(description ?? '', 20)}</span>
+      ),
     },
     {
       title: "状态",
@@ -70,9 +154,21 @@ export function DashboardPage() {
       ),
     },
     {
-      title: "考试 ID",
+      title: "操作",
       dataIndex: "id",
       key: "id",
+      width: 120,
+      fixed: "right",
+      render: (id: string) => (
+        <div className="flex gap-2">
+          <Button type="link" onClick={() => void handleEdit(id)}>
+            编辑
+          </Button>
+          <Button type="link" danger onClick={() => handleDelete(id)}>
+            删除
+          </Button>
+        </div>
+      ),
     },
   ];
 
@@ -94,20 +190,39 @@ export function DashboardPage() {
     examModal.openCreate();
   };
 
-  const onFinish = (values: IExamEditor) => {
-    console.log("保存考试：", values);
+  const onFinish = async (values: IExamEditor) => {
+    const payload = toPayload(values);
 
-    if(values.id){
-
+    if (payload.id) {
+      const ok = await updateExam(payload);
+      if (ok) {
+        message.success("更新成功");
+        examModal.close();
+        await refresh();
+      } else {
+        message.error("更新失败");
+      }
+      return;
     }
-    else {
-      createExam(values as IExamCreate).then(res =>{
-        if(res){
-          examModal.close();
-          message.success("创建成功!");
-          refresh();
-        }
-      });
+
+    const createPayload: IExamCreate = {
+      title: payload.title,
+      description: payload.description,
+      start_time: payload.start_time,
+      end_time: payload.end_time,
+      pass_score: payload.pass_score,
+      status: payload.status,
+      shuffle_questions: payload.shuffle_questions,
+      shuffle_options: payload.shuffle_options,
+    };
+
+    const ok = await createExam(createPayload);
+    if (ok) {
+      message.success("创建成功");
+      examModal.close();
+      await refresh();
+    } else {
+      message.error("创建失败");
     }
   };
 
@@ -191,6 +306,10 @@ export function DashboardPage() {
           onFinish={onFinish}
           initialValues={examModal.formData as any}
         >
+          <Form.Item name="id" hidden>
+            <Input />
+          </Form.Item>
+
           <Form.Item
             name="title"
             label="考试标题"

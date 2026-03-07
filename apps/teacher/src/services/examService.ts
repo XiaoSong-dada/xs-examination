@@ -1,10 +1,18 @@
-import { IExamCreate } from "@/types/main";
+import type { IExamCreate, IExamEditor } from "@/types/main";
 import { invoke } from "@tauri-apps/api/core";
 
 export interface ExamListItem {
   id: string;
   title: string;
+  description?: string;
   status: string;
+}
+
+export interface ExamDetailItem extends IExamEditor {
+  pass_score: number;
+  status: string;
+  shuffle_questions: number;
+  shuffle_options: number;
 }
 
 
@@ -15,7 +23,34 @@ export interface ExamListItem {
  * @returns 创建成功后的完整考试对象
  */
 export async function createExam(data: IExamCreate) {
-  return invoke('create_exam', { payload: data });
+  return invoke("create_exam", { payload: data });
+}
+
+/**
+ * 更新考试
+ *
+ * @param data - 考试编辑表单数据（含 id）
+ */
+export async function updateExam(data: IExamEditor) {
+  return invoke("update_exam", { payload: data });
+}
+
+/**
+ * 删除考试
+ *
+ * @param id - 考试 id
+ */
+export async function deleteExam(id: string) {
+  return invoke("delete_exam", { payload: { id } });
+}
+
+/**
+ * 获取单个考试详情
+ *
+ * @param id - 考试 id
+ */
+export async function getExamById(id: string): Promise<ExamDetailItem> {
+  return invoke<ExamDetailItem>("get_exam_by_id", { payload: { id } });
 }
 
 /**

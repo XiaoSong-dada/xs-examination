@@ -1,9 +1,14 @@
 import { useCallback, useState, useEffect, useMemo } from "react";
 import useExamState from "./useDict";
-import { IExamCreate } from "@/types/main";
-import { createExam as create, getExamList } from "@/services/examService";
+import type { IExamCreate, IExamEditor } from "@/types/main";
+import {
+  createExam as create,
+  getExamList,
+  updateExam as update,
+  deleteExam as remove,
+} from "@/services/examService";
 import { deepClone } from "@/utils/utils";
-import type { UseExamListResult, ExamListItem, IExamEditor } from "@/types/main";
+import type { UseExamListResult, ExamListItem } from "@/types/main";
 
 
 /**
@@ -41,6 +46,8 @@ export function useExamList(): UseExamListResult {
     setLoading(true);
     try {
       const result = await getExamList();
+      console.log(result);
+      
       setAllExams(result);
     } catch (error) {
       console.error("[useExamList] 获取考试列表失败", error);
@@ -149,24 +156,59 @@ export function useExam() {
  * 调用后会向后端提交数据并返回 boolean 表示是否成功。
  */
 export const useCreateExam = () => {
-  const createExam = useCallback(async (data: IExamCreate ) => {
+  const createExam = useCallback(async (data: IExamCreate) => {
     try {
       await create(data);
       return true;
-    }
-    catch (e) {
+    } catch (e) {
       console.error("创建考试失败", e);
       return false;
     }
+  }, []);
 
-  }, [])
+  return { createExam };
+};
 
+/**
+ * 提供更新考试的异步函数。
+ *
+ * 调用后会向后端提交数据并返回 boolean 表示是否成功。
+ */
+export const useUpdateExam = () => {
+  const updateExam = useCallback(async (data: IExamEditor) => {
+    try {
+      await update(data);
+      return true;
+    } catch (e) {
+      console.error("更新考试失败", e);
+      return false;
+    }
+  }, []);
 
-  return { createExam }
-}
+  return { updateExam };
+};
+
+/**
+ * 提供删除考试的异步函数。
+ *
+ * 调用后会向后端提交 id 并返回 boolean 表示是否成功。
+ */
+export const useDeleteExam = () => {
+  const deleteExam = useCallback(async (id: string) => {
+    try {
+      await remove(id);
+      return true;
+    } catch (e) {
+      console.error("删除考试失败", e);
+      return false;
+    }
+  }, []);
+
+  return { deleteExam };
+};
 
 const default_create_exam_data: IExamEditor = {
-  id:'',
+  id: "",
   title: "",
   description: "",
   start_time: null,
@@ -175,7 +217,7 @@ const default_create_exam_data: IExamEditor = {
   status: "draft",
   shuffle_questions: 0,
   shuffle_options: 0,
-}
+};
 
 
 /**

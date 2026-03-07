@@ -39,5 +39,6 @@ export interface UseExamListResult {
 export interface ExamListItem {
   id: string;
   title: string;
+  description?: string;
   status: string;
 }
