@@ -1,11 +1,11 @@
 import { createBrowserRouter } from "react-router-dom";
 import { AppLayout } from "../layout/AppLayout";
 import { DashboardPage } from "../pages/Dashboard/index";
-import { ExamCreatePage } from "../pages/ExamCreate/index";
 import { GradingPage } from "../pages/Grading/index";
 import { MonitorPage } from "../pages/Monitor/index";
 import { QuestionImportPage } from "../pages/QuestionImport/index";
 import { ReportPage } from "../pages/Report/index";
+import { StudentsPage } from "../pages/Students/index";
 
 /**
  * 教师端路由配置，定义骨架布局与各业务页面路径。
@@ -22,8 +22,8 @@ export const router = createBrowserRouter([
 				element: <DashboardPage />,
 			},
 			{
-				path: "exam/create",
-				element: <ExamCreatePage />,
+				path: "students",
+				element: <StudentsPage />,
 			},
 			{
 				path: "question/import",

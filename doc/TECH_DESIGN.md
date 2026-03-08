@@ -199,18 +199,30 @@ CREATE TABLE questions (
     explanation  TEXT                   -- 解析（可选）
 );
 
--- 学生表（每次考试独立注册）
+-- 学生信息拆分说明：
+-- 原来的 `students`（每次考试独立注册）拆为两个表：
+-- 1) `students`：持久化的学生信息（一条记录表示一个真实学生/学号，合并原 students 中的 student_no/name 字段）
+-- 2) `student_exams`：学生参加某次考试的记录（保留原 students 中的 exam_id/ip_addr/status/join_time/submit_time 字段）
+
+-- 持久化学生信息表（智能合并旧 students + 新增时间戳字段）
 CREATE TABLE students (
-    id          TEXT PRIMARY KEY,
-    exam_id     TEXT NOT NULL REFERENCES exams(id),
-    student_no  TEXT NOT NULL,          -- 学号
-    name        TEXT NOT NULL,          -- 姓名
-    ip_addr     TEXT,                   -- 连接 IP
-    status      TEXT NOT NULL DEFAULT 'waiting',
-                                        -- waiting | active | submitted | offline | forced
-    join_time   INTEGER,
-    submit_time INTEGER,
-    UNIQUE(exam_id, student_no)
+  id          TEXT PRIMARY KEY,       -- UUID
+  student_no  TEXT NOT NULL UNIQUE,   -- 学号（全局唯一，代表同一个真实学生）
+  name        TEXT NOT NULL,          -- 姓名
+  created_at  INTEGER NOT NULL DEFAULT (strftime('%s','now')*1000),
+  updated_at  INTEGER NOT NULL DEFAULT (strftime('%s','now')*1000)
+);
+
+-- 学生参加考试的记录表（每次参考一条）
+CREATE TABLE student_exams (
+  id          TEXT PRIMARY KEY,       -- 记录 id（沿用旧 students.id）
+  student_id  TEXT NOT NULL REFERENCES students(id),
+  exam_id     TEXT NOT NULL REFERENCES exams(id),
+  ip_addr     TEXT,
+  status      TEXT NOT NULL DEFAULT 'waiting',  -- waiting|active|submitted|offline|forced
+  join_time   INTEGER,
+  submit_time INTEGER,
+  UNIQUE(exam_id, student_id)
 );
 
 -- 答卷表

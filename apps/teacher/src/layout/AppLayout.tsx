@@ -4,7 +4,7 @@ import {
 	EditOutlined,
 	ImportOutlined,
 	MonitorOutlined,
-	PlusSquareOutlined,
+	TeamOutlined,
 } from "@ant-design/icons";
 import { Layout, Menu } from "antd";
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
@@ -13,7 +13,7 @@ const { Content, Sider, Header } = Layout;
 
 const menuItems = [
 	{ key: "/", icon: <AppstoreOutlined />, label: "考试列表" },
-	{ key: "/exam/create", icon: <PlusSquareOutlined />, label: "新建考试" },
+	{ key: "/students", icon: <TeamOutlined />, label: "学生列表" },
 	{
 		key: "/question/import",
 		icon: <ImportOutlined />,

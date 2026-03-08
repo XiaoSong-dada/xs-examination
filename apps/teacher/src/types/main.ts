@@ -42,3 +42,38 @@ export interface ExamListItem {
   description?: string;
   status: string;
 }
+
+export interface IStudentCreate {
+  student_no: string;
+  name: string;
+  created_at?: number;
+  updated_at?: number;
+}
+
+export interface IStudentEditor extends IStudentCreate {
+  id: string;
+}
+
+export interface StudentListItem {
+  id: string;
+  student_no: string;
+  name: string;
+  created_at: number;
+  updated_at: number;
+}
+
+export interface UseStudentListResult {
+  loading: boolean;
+  inputKeyword: string;
+  appliedKeyword: string;
+  setInputKeyword: (value: string) => void;
+  search: () => void;
+  reset: () => void;
+  page: number;
+  pageSize: number;
+  setPage: (value: number) => void;
+  setPageSize: (value: number) => void;
+  total: number;
+  dataSource: StudentListItem[];
+  refresh: () => Promise<void>;
+}
