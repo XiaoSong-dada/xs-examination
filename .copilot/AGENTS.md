@@ -69,6 +69,8 @@
 | Tauri 命令函数 | `snake_case` | `create_exam`, `get_questions` |
 | 结构体 / 枚举 | `PascalCase` | `ExamStatus`, `WsMessage` |
 
+> **新增约定**：所有用于前后端交互或控制层的纯数据结构（DTO、输入/输出 payload）应放在 `src-tauri/src/schemas/` 文件夹内，使用同名 `*_schema.rs` 文件管理。例如 `question_schema.rs` 存放与题目相关的 DTO。该目录仅包含结构体声明，不包含业务逻辑。
+
 ### 共享类型包
 
 - 前后端通信协议类型必须定义在 `packages/shared-types/src/` 中

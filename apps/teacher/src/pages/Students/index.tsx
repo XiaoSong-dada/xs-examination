@@ -13,6 +13,13 @@ import {
 import { useTableHeight } from "@/hooks/useTableHeight";
 import type { IStudentCreate, IStudentEditor, StudentListItem } from "@/types/main";
 
+/**
+ * 将 CSV 文本拆分成二维字符串数组，每行是一个子数组。
+ * 手工处理引号、转义和换行以兼容常见的 CSV 格式。
+ *
+ * @param text - 完整的 CSV 文件内容。
+ * @returns 按行分割的单元格数组。
+ */
 function parseCsvRows(text: string): string[][] {
   const rows: string[][] = [];
   let row: string[] = [];
@@ -70,10 +77,27 @@ function parseCsvRows(text: string): string[][] {
   return rows;
 }
 
+/**
+ * 规范化表头字符串，去除前后空白、转换为小写并将空格替换为下划线。
+ *
+ * 用于将 CSV 头部与内部字段名称对齐。
+ *
+ * @param value - 原始表头文本。
+ * @returns 处理后的规范化字符串。
+ */
 function normalizeHeader(value: string): string {
   return value.trim().toLowerCase().replace(/\s+/g, "_");
 }
 
+/**
+ * 从 CSV 文本中提取学生数据。
+ * 自动识别含或不含表头的格式，并根据多种可能的字段名称匹配学号和姓名。
+ * 如果检测到重复学号会抛出错误。
+ *
+ * @param text - CSV 文件内容字符串。
+ * @returns 解析得到的学生记录数组。
+ * @throws 当 CSV 包含重复学号时。
+ */
 function parseStudentsFromCsv(text: string): IStudentCreate[] {
   const cleanText = text.replace(/^\uFEFF/, "");
   const rows = parseCsvRows(cleanText).filter((row) =>
@@ -125,6 +149,14 @@ function parseStudentsFromCsv(text: string): IStudentCreate[] {
   return parsed;
 }
 
+/**
+ * 将任意错误对象转换为可显示的字符串。
+ * 支持 Error 实例、字符串以及可 JSON 化的值。
+ * 当无法序列化时返回默认消息。
+ *
+ * @param error - 捕获到的错误。
+ * @returns 适合用于用户提示的错误描述。
+ */
 function resolveErrorMessage(error: unknown): string {
   if (error instanceof Error) {
     return error.message;

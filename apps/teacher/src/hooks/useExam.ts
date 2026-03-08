@@ -124,6 +124,36 @@ export function useExamList(): UseExamListResult {
 }
 
 /**
+ * 获取全量考试列表（不分页）供下拉选择等场景使用。
+ */
+export function useAllExamList() {
+  const [loading, setLoading] = useState<boolean>(false);
+  const [exams, setExams] = useState<ExamListItem[]>([]);
+
+  const refresh = useCallback(async (): Promise<void> => {
+    setLoading(true);
+    try {
+      const result = await getExamList();
+      setExams(result);
+    } catch (error) {
+      console.error("[useAllExamList] 获取考试列表失败", error);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void refresh();
+  }, [refresh]);
+
+  return {
+    loading,
+    exams,
+    refresh,
+  };
+}
+
+/**
  * useExam 钩子：提供与考试相关的通用工具/辅助函数
  */
 /**

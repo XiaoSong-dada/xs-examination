@@ -9,6 +9,9 @@ pub mod db;
 pub mod network;
 pub mod state;
 
+// schemas contains DTOs and input/output payloads used by the controllers
+pub mod schemas;
+
 use tauri::Manager;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -35,6 +38,7 @@ pub fn run() {
             controllers::student_controller::update_student,
             controllers::student_controller::delete_student,
             controllers::student_controller::bulk_create_students,
+            controllers::question_controller::get_questions,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

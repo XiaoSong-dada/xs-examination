@@ -43,6 +43,18 @@ export interface ExamListItem {
   status: string;
 }
 
+export interface QuestionListItem {
+  id: string;
+  exam_id: string;
+  seq: number;
+  type: string;
+  content: string;
+  options?: string;
+  answer: string;
+  score: number;
+  explanation?: string;
+}
+
 export interface IStudentCreate {
   student_no: string;
   name: string;
