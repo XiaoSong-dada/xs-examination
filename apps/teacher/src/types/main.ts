@@ -43,7 +43,10 @@ export interface ExamListItem {
   status: string;
 }
 
-export interface QuestionListItem {
+/**
+ * 题目实体结构（与数据库 questions 表字段保持一致）。
+ */
+export interface Question {
   id: string;
   exam_id: string;
   seq: number;
@@ -54,6 +57,8 @@ export interface QuestionListItem {
   score: number;
   explanation?: string;
 }
+
+export type QuestionListItem = Question;
 
 export interface IStudentCreate {
   student_no: string;

@@ -39,6 +39,7 @@ pub fn run() {
             controllers::student_controller::delete_student,
             controllers::student_controller::bulk_create_students,
             controllers::question_controller::get_questions,
+            controllers::question_controller::bulk_import_questions,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
