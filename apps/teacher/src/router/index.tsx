@@ -5,6 +5,7 @@ import { GradingPage } from "../pages/Grading/index";
 import { MonitorPage } from "../pages/Monitor/index";
 import { QuestionImportPage } from "../pages/QuestionImport/index";
 import { ReportPage } from "../pages/Report/index";
+import { StudentImportPage } from "../pages/StudentImport/index";
 import { StudentsPage } from "../pages/Students/index";
 
 /**
@@ -28,6 +29,10 @@ export const router = createBrowserRouter([
 			{
 				path: "question/import",
 				element: <QuestionImportPage />,
+			},
+			{
+				path: "students/import",
+				element: <StudentImportPage />,
 			},
 			{
 				path: "monitor",

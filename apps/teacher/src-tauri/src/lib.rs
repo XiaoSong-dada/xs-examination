@@ -38,6 +38,8 @@ pub fn run() {
             controllers::student_controller::update_student,
             controllers::student_controller::delete_student,
             controllers::student_controller::bulk_create_students,
+            controllers::student_exam_controller::get_students_by_exam_id,
+            controllers::student_exam_controller::import_students_by_exam_id,
             controllers::question_controller::get_questions,
             controllers::question_controller::bulk_import_questions,
         ])

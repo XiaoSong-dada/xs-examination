@@ -19,6 +19,11 @@ const menuItems = [
 		icon: <ImportOutlined />,
 		label: "题库导入",
 	},
+	{
+		key: "/students/import",
+		icon: <ImportOutlined />,
+		label: "学生引入",
+	},
 	{ key: "/monitor", icon: <MonitorOutlined />, label: "实时监考" },
 	{ key: "/grading", icon: <EditOutlined />, label: "主观阅卷" },
 	{ key: "/report", icon: <BarChartOutlined />, label: "成绩报告" },

@@ -5,6 +5,24 @@ export async function getStudentList(): Promise<StudentListItem[]> {
   return invoke<StudentListItem[]>("get_students");
 }
 
+export async function getStudentListByExamId(examId: string): Promise<StudentListItem[]> {
+  return invoke<StudentListItem[]>("get_students_by_exam_id", {
+    payload: { exam_id: examId },
+  });
+}
+
+export async function importStudentsByExamId(
+  examId: string,
+  studentIds: string[],
+): Promise<StudentListItem[]> {
+  return invoke<StudentListItem[]>("import_students_by_exam_id", {
+    payload: {
+      exam_id: examId,
+      student_ids: studentIds,
+    },
+  });
+}
+
 export async function getStudentById(id: string): Promise<StudentListItem> {
   return invoke<StudentListItem>("get_student_by_id", { payload: { id } });
 }
