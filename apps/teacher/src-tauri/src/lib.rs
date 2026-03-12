@@ -7,6 +7,7 @@ pub mod config;
 pub mod crypto;
 pub mod db;
 pub mod network;
+pub mod utils;
 pub mod state;
 
 // schemas contains DTOs and input/output payloads used by the controllers
@@ -32,6 +33,13 @@ pub fn run() {
             controllers::exam_controller::create_exam,
             controllers::exam_controller::update_exam,
             controllers::exam_controller::delete_exam,
+            controllers::device_controller::get_devices,
+            controllers::device_controller::get_device_by_id,
+            controllers::device_controller::create_device,
+            controllers::device_controller::update_device,
+            controllers::device_controller::delete_device,
+            controllers::device_controller::discover_student_devices,
+            controllers::device_controller::replace_devices_by_discovery,
             controllers::student_controller::get_students,
             controllers::student_controller::get_student_by_id,
             controllers::student_controller::create_student,
