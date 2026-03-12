@@ -94,3 +94,35 @@ export interface UseStudentListResult {
   dataSource: StudentListItem[];
   refresh: () => Promise<void>;
 }
+
+export interface IDeviceCreate {
+  ip: string;
+  name: string;
+}
+
+export interface IDeviceEditor extends IDeviceCreate {
+  id: string;
+}
+
+export interface DeviceListItem {
+  id: string;
+  ip: string;
+  name: string;
+}
+
+export interface UseDeviceListResult {
+  loading: boolean;
+  inputIpKeyword: string;
+  inputNameKeyword: string;
+  appliedIpKeyword: string;
+  appliedNameKeyword: string;
+  setInputIpKeyword: (value: string) => void;
+  setInputNameKeyword: (value: string) => void;
+  search: () => void;
+  reset: () => void;
+  dataSource: DeviceListItem[];
+  refresh: () => Promise<void>;
+  createDevice: (data: IDeviceCreate) => Promise<boolean>;
+  updateDevice: (data: IDeviceEditor) => Promise<boolean>;
+  deleteDevice: (id: string) => Promise<boolean>;
+}

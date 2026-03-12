@@ -1,6 +1,7 @@
 import {
 	AppstoreOutlined,
 	BarChartOutlined,
+	DesktopOutlined,
 	EditOutlined,
 	ImportOutlined,
 	MonitorOutlined,
@@ -13,6 +14,8 @@ const { Content, Sider, Header } = Layout;
 
 const menuItems = [
 	{ key: "/", icon: <AppstoreOutlined />, label: "考试列表" },
+	{ key: "/devices", icon: <DesktopOutlined />, label: "设备列表" },
+	{ key: "/devices/assign", icon: <DesktopOutlined />, label: "分配设备" },
 	{ key: "/students", icon: <TeamOutlined />, label: "学生列表" },
 	{
 		key: "/question/import",
