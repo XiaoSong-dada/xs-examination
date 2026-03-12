@@ -3,6 +3,7 @@ import { AppLayout } from "../layout/AppLayout";
 import { DashboardPage } from "../pages/Dashboard/index";
 import { DeviceAssignPage } from "../pages/DeviceAssign/index";
 import { DevicesPage } from "../pages/Devices/index";
+import { ExamManagePage } from "../pages/ExamManage/index";
 import { GradingPage } from "../pages/Grading/index";
 import { MonitorPage } from "../pages/Monitor/index";
 import { QuestionImportPage } from "../pages/QuestionImport/index";
@@ -31,6 +32,10 @@ export const router = createBrowserRouter([
 			{
 				path: "devices/assign",
 				element: <DeviceAssignPage />,
+			},
+			{
+				path: "exam/manage",
+				element: <ExamManagePage />,
 			},
 			{
 				path: "students",

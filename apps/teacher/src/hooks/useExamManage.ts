@@ -1,0 +1,150 @@
+import { useCallback, useEffect, useMemo, useState } from "react";
+
+import { useAllExamList } from "@/hooks/useExam";
+import { useExamStudents } from "@/hooks/useExamStudents";
+import { getExamById, updateExam } from "@/services/examService";
+import type { StudentListItem } from "@/types/main";
+
+export interface ExamManageTableItem {
+  id: string;
+  name: string;
+  deviceIp: string;
+  linkStatus: string;
+  status: string;
+}
+
+const examStatusLabelMap: Record<string, string> = {
+  draft: "草稿",
+  published: "已分发",
+  active: "进行中",
+  paused: "已暂停",
+  finished: "已结束",
+};
+
+/**
+ * 考试管理页面 Hook：负责考试选择、状态变更与学生表格数据。
+ */
+export function useExamManage() {
+  const { exams, loading: examLoading, refresh: refreshExamList } = useAllExamList();
+  const {
+    students,
+    loading: studentLoading,
+    fetchStudentsByExamId,
+  } = useExamStudents();
+
+  const [selectedExamId, setSelectedExamId] = useState<string>();
+  const [currentExamStatus, setCurrentExamStatus] = useState<string>("draft");
+  const [distributing, setDistributing] = useState(false);
+  const [starting, setStarting] = useState(false);
+
+  useEffect(() => {
+    if (!selectedExamId && exams.length > 0) {
+      setSelectedExamId(exams[0].id);
+    }
+  }, [exams, selectedExamId]);
+
+  const loadExamStatus = useCallback(async (examId?: string) => {
+    if (!examId) {
+      setCurrentExamStatus("draft");
+      return;
+    }
+
+    try {
+      const detail = await getExamById(examId);
+      setCurrentExamStatus(detail.status ?? "draft");
+    } catch (error) {
+      console.error("[useExamManage] 获取考试详情失败", error);
+      setCurrentExamStatus("draft");
+    }
+  }, []);
+
+  useEffect(() => {
+    const loadData = async () => {
+      await fetchStudentsByExamId(selectedExamId);
+      await loadExamStatus(selectedExamId);
+    };
+
+    void loadData();
+  }, [fetchStudentsByExamId, loadExamStatus, selectedExamId]);
+
+  const updateExamStatus = useCallback(
+    async (status: string) => {
+      if (!selectedExamId) {
+        return false;
+      }
+
+      try {
+        const detail = await getExamById(selectedExamId);
+        await updateExam({
+          id: detail.id,
+          title: detail.title,
+          description: detail.description,
+          start_time: detail.start_time,
+          end_time: detail.end_time,
+          pass_score: detail.pass_score,
+          status,
+          shuffle_questions: detail.shuffle_questions,
+          shuffle_options: detail.shuffle_options,
+        });
+
+        setCurrentExamStatus(status);
+        await refreshExamList();
+        return true;
+      } catch (error) {
+        console.error("[useExamManage] 更新考试状态失败", error);
+        return false;
+      }
+    },
+    [refreshExamList, selectedExamId],
+  );
+
+  const distributePapers = useCallback(async () => {
+    setDistributing(true);
+    try {
+      return await updateExamStatus("published");
+    } finally {
+      setDistributing(false);
+    }
+  }, [updateExamStatus]);
+
+  const startExam = useCallback(async () => {
+    setStarting(true);
+    try {
+      return await updateExamStatus("active");
+    } finally {
+      setStarting(false);
+    }
+  }, [updateExamStatus]);
+
+  const examOptions = useMemo(
+    () => exams.map((exam) => ({ label: exam.title, value: exam.id })),
+    [exams],
+  );
+
+  const tableData = useMemo<ExamManageTableItem[]>(
+    () =>
+      students.map((student: StudentListItem) => ({
+        id: student.id,
+        name: student.name,
+        deviceIp: "-",
+        linkStatus: "未连接",
+        status: "待考",
+      })),
+    [students],
+  );
+
+  return {
+    selectedExamId,
+    setSelectedExamId,
+    examOptions,
+    examLoading,
+    currentExamStatus,
+    currentExamStatusLabel: examStatusLabelMap[currentExamStatus] ?? currentExamStatus,
+    tableData,
+    tableLoading: studentLoading,
+    distributePapers,
+    startExam,
+    distributing,
+    starting,
+  } as const;
+}
