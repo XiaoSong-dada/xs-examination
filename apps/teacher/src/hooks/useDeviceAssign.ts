@@ -1,23 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import type { DeviceListItem, StudentListItem } from "@/types/main";
+import type { DeviceAssignRow, DeviceListItem, ExamOption, StudentDeviceAssignItem, StudentDeviceAssignPayloadItem } from "@/types/main";
 import { getDeviceList } from "@/services/deviceService";
 import { getExamList } from "@/services/examService";
-import { getStudentListByExamId } from "@/services/studentService";
+import {
+  assignDevicesToStudentExams,
+  getStudentDeviceAssignmentsByExamId,
+} from "@/services/studentService";
 
-export interface DeviceAssignRow {
-  id: string;
-  ip: string;
-  name: string;
-  student_id?: string;
-  student_no?: string;
-  student_name?: string;
-  assigned: boolean;
-}
-
-export interface ExamOption {
-  label: string;
-  value: string;
-}
 
 function shuffleArray<T>(items: T[]): T[] {
   const result = [...items];
@@ -29,21 +18,18 @@ function shuffleArray<T>(items: T[]): T[] {
 }
 
 function buildRows(
-  devices: DeviceListItem[],
-  assignedMap: Map<string, StudentListItem>,
+  assignments: StudentDeviceAssignItem[],
 ): DeviceAssignRow[] {
-  return devices.map((device) => {
-    const student = assignedMap.get(device.id);
-    return {
-      id: device.id,
-      ip: device.ip,
-      name: device.name,
-      student_id: student?.id,
-      student_no: student?.student_no,
-      student_name: student?.name,
-      assigned: Boolean(student),
-    };
-  });
+  return assignments.map((item) => ({
+    id: item.student_exam_id,
+    student_exam_id: item.student_exam_id,
+    student_id: item.student_id,
+    student_no: item.student_no,
+    student_name: item.student_name,
+    ip_addr: item.ip_addr,
+    device_name: item.device_name,
+    assigned: Boolean(item.ip_addr),
+  }));
 }
 
 export function useDeviceAssign() {
@@ -52,8 +38,7 @@ export function useDeviceAssign() {
   const [examOptions, setExamOptions] = useState<ExamOption[]>([]);
   const [selectedExamId, setSelectedExamId] = useState<string>();
   const [allDevices, setAllDevices] = useState<DeviceListItem[]>([]);
-  const [allStudents, setAllStudents] = useState<StudentListItem[]>([]);
-  const [assignedMap, setAssignedMap] = useState<Map<string, StudentListItem>>(new Map());
+  const [allAssignments, setAllAssignments] = useState<StudentDeviceAssignItem[]>([]);
 
   const loadExams = useCallback(async () => {
     const exams = await getExamList();
@@ -85,48 +70,74 @@ export function useDeviceAssign() {
 
   useEffect(() => {
     if (!selectedExamId) {
-      setAllStudents([]);
-      setAssignedMap(new Map());
+      setAllAssignments([]);
       return;
     }
 
     setLoading(true);
-    void getStudentListByExamId(selectedExamId)
-      .then((students) => {
-        setAllStudents(students);
-        setAssignedMap(new Map());
+    void getStudentDeviceAssignmentsByExamId(selectedExamId)
+      .then((assignments) => {
+        setAllAssignments(assignments);
       })
       .finally(() => {
         setLoading(false);
       });
   }, [selectedExamId]);
 
-  const randomAssign = useCallback(() => {
-    if (!selectedExamId || allStudents.length === 0 || allDevices.length === 0) {
+  const randomAssign = useCallback(async () => {
+    if (!selectedExamId || allAssignments.length === 0 || allDevices.length === 0) {
       return false;
     }
 
     setAssigning(true);
-    const shuffledStudents = shuffleArray(allStudents);
-    const nextAssignedMap = new Map<string, StudentListItem>();
-    const assignCount = Math.min(allDevices.length, shuffledStudents.length);
+    try {
+      const shuffledStudents = shuffleArray(allAssignments);
+      const shuffledDevices = shuffleArray(allDevices);
+      const assignCount = Math.min(shuffledStudents.length, shuffledDevices.length);
+      const nextIpMap = new Map<string, string | undefined>();
 
-    for (let i = 0; i < assignCount; i += 1) {
-      nextAssignedMap.set(allDevices[i].id, shuffledStudents[i]);
+      for (const item of allAssignments) {
+        nextIpMap.set(item.student_exam_id, undefined);
+      }
+
+      for (let i = 0; i < assignCount; i += 1) {
+        nextIpMap.set(shuffledStudents[i].student_exam_id, shuffledDevices[i].ip);
+      }
+
+      const payload: StudentDeviceAssignPayloadItem[] = allAssignments.map((item) => ({
+        student_exam_id: item.student_exam_id,
+        ip_addr: nextIpMap.get(item.student_exam_id),
+      }));
+
+      const updated = await assignDevicesToStudentExams(selectedExamId, payload);
+      setAllAssignments(updated);
+      return true;
+    } finally {
+      setAssigning(false);
+    }
+  }, [allAssignments, allDevices, selectedExamId]);
+
+  const clearAssign = useCallback(async () => {
+    if (!selectedExamId || allAssignments.length === 0) {
+      return;
     }
 
-    setAssignedMap(nextAssignedMap);
-    setAssigning(false);
-    return true;
-  }, [allDevices, allStudents, selectedExamId]);
-
-  const clearAssign = useCallback(() => {
-    setAssignedMap(new Map());
-  }, []);
+    setAssigning(true);
+    try {
+      const payload: StudentDeviceAssignPayloadItem[] = allAssignments.map((item) => ({
+        student_exam_id: item.student_exam_id,
+        ip_addr: undefined,
+      }));
+      const updated = await assignDevicesToStudentExams(selectedExamId, payload);
+      setAllAssignments(updated);
+    } finally {
+      setAssigning(false);
+    }
+  }, [allAssignments, selectedExamId]);
 
   const tableData = useMemo(
-    () => buildRows(allDevices, assignedMap),
-    [allDevices, assignedMap],
+    () => buildRows(allAssignments),
+    [allAssignments],
   );
 
   return {
@@ -138,9 +149,9 @@ export function useDeviceAssign() {
     tableData,
     randomAssign,
     clearAssign,
-    studentCount: allStudents.length,
+    studentCount: allAssignments.length,
     deviceCount: allDevices.length,
-    assignedCount: assignedMap.size,
+    assignedCount: tableData.filter((item) => item.assigned).length,
     refresh,
   } as const;
 }

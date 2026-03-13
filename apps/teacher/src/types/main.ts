@@ -79,6 +79,20 @@ export interface StudentListItem {
   updated_at: number;
 }
 
+export interface StudentDeviceAssignItem {
+  student_exam_id: string;
+  student_id: string;
+  student_no: string;
+  student_name: string;
+  ip_addr?: string;
+  device_name?: string;
+}
+
+export interface StudentDeviceAssignPayloadItem {
+  student_exam_id: string;
+  ip_addr?: string;
+}
+
 export interface UseStudentListResult {
   loading: boolean;
   inputKeyword: string;
@@ -125,4 +139,30 @@ export interface UseDeviceListResult {
   createDevice: (data: IDeviceCreate) => Promise<boolean>;
   updateDevice: (data: IDeviceEditor) => Promise<boolean>;
   deleteDevice: (id: string) => Promise<boolean>;
+}
+
+
+export interface DeviceAssignRow {
+  id: string;
+  student_exam_id: string;
+  student_id: string;
+  student_no: string;
+  student_name: string;
+  ip_addr?: string;
+  device_name?: string;
+  assigned: boolean;
+}
+
+export interface ExamOption {
+  label: string;
+  value: string;
+}
+
+
+export interface MonitorTableItem {
+  id: string;
+  name: string;
+  deviceIp: string;
+  linkStatus: string;
+  answerProgress: number;
 }

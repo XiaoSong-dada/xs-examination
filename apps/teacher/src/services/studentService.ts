@@ -1,4 +1,10 @@
-import type { IStudentCreate, IStudentEditor, StudentListItem } from "@/types/main";
+import type {
+  IStudentCreate,
+  IStudentEditor,
+  StudentDeviceAssignItem,
+  StudentDeviceAssignPayloadItem,
+  StudentListItem,
+} from "@/types/main";
 import { invoke } from "@tauri-apps/api/core";
 
 export async function getStudentList(): Promise<StudentListItem[]> {
@@ -19,6 +25,26 @@ export async function importStudentsByExamId(
     payload: {
       exam_id: examId,
       student_ids: studentIds,
+    },
+  });
+}
+
+export async function getStudentDeviceAssignmentsByExamId(
+  examId: string,
+): Promise<StudentDeviceAssignItem[]> {
+  return invoke<StudentDeviceAssignItem[]>("get_student_device_assignments_by_exam_id", {
+    payload: { exam_id: examId },
+  });
+}
+
+export async function assignDevicesToStudentExams(
+  examId: string,
+  assignments: StudentDeviceAssignPayloadItem[],
+): Promise<StudentDeviceAssignItem[]> {
+  return invoke<StudentDeviceAssignItem[]>("assign_devices_to_student_exams", {
+    payload: {
+      exam_id: examId,
+      assignments,
     },
   });
 }

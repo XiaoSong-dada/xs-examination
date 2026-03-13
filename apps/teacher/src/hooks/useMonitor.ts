@@ -2,15 +2,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { useAllExamList } from "@/hooks/useExam";
 import { useExamStudents } from "@/hooks/useExamStudents";
-import type { StudentListItem } from "@/types/main";
+import type { StudentListItem, MonitorTableItem } from "@/types/main";
 
-export interface MonitorTableItem {
-  id: string;
-  name: string;
-  deviceIp: string;
-  linkStatus: string;
-  answerProgress: number;
-}
 
 /**
  * 实时监考页面 Hook：负责考试切换与学生监考表格数据。

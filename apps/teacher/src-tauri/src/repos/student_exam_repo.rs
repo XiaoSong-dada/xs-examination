@@ -9,6 +9,7 @@ use crate::models::student::Model as StudentModel;
 use crate::models::student_exam::{
     ActiveModel, Column, Entity as StudentExamEntity, Model as StudentExamModel,
 };
+use crate::schemas::student_exam_schema;
 
 pub async fn get_student_exams_by_exam_id(
     db: &DatabaseConnection,
@@ -88,4 +89,81 @@ pub async fn replace_students_by_exam_id(
 
     txn.commit().await?;
     get_students_by_exam_id(db, exam_id).await
+}
+
+pub async fn get_student_device_assignments_by_exam_id(
+    db: &DatabaseConnection,
+    exam_id: &str,
+) -> Result<Vec<student_exam_schema::StudentDeviceAssignDto>> {
+    let se = Alias::new("se");
+    let s = Alias::new("s");
+    let d = Alias::new("d");
+
+    let query = Query::select()
+        .expr_as(
+            Expr::col((se.clone(), Alias::new("id"))),
+            Alias::new("student_exam_id"),
+        )
+        .column((se.clone(), Alias::new("student_id")))
+        .column((s.clone(), Alias::new("student_no")))
+        .expr_as(
+            Expr::col((s.clone(), Alias::new("name"))),
+            Alias::new("student_name"),
+        )
+        .column((se.clone(), Alias::new("ip_addr")))
+        .expr_as(
+            Expr::col((d.clone(), Alias::new("name"))),
+            Alias::new("device_name"),
+        )
+        .from_as(Alias::new("student_exams"), se.clone())
+        .join_as(
+            JoinType::LeftJoin,
+            Alias::new("students"),
+            s.clone(),
+            Expr::col((s.clone(), Alias::new("id"))).equals((se.clone(), Alias::new("student_id"))),
+        )
+        .join_as(
+            JoinType::LeftJoin,
+            Alias::new("devices"),
+            d.clone(),
+            Expr::col((d.clone(), Alias::new("ip"))).equals((se.clone(), Alias::new("ip_addr"))),
+        )
+        .and_where(Expr::col((se.clone(), Alias::new("exam_id"))).eq(exam_id))
+        .order_by((s.clone(), Alias::new("created_at")), Order::Desc)
+        .to_owned();
+
+    let rows = db.query_all(&query).await?;
+    let mut assignments = Vec::with_capacity(rows.len());
+    for row in rows {
+        assignments.push(student_exam_schema::StudentDeviceAssignDto {
+            student_exam_id: row.try_get("", "student_exam_id")?,
+            student_id: row.try_get("", "student_id")?,
+            student_no: row.try_get("", "student_no")?,
+            student_name: row.try_get("", "student_name")?,
+            ip_addr: row.try_get("", "ip_addr")?,
+            device_name: row.try_get("", "device_name")?,
+        });
+    }
+
+    Ok(assignments)
+}
+
+pub async fn assign_devices_to_student_exams(
+    db: &DatabaseConnection,
+    exam_id: &str,
+    assignments: Vec<student_exam_schema::AssignStudentDeviceItem>,
+) -> Result<Vec<student_exam_schema::StudentDeviceAssignDto>> {
+    let txn = db.begin().await?;
+
+    for item in assignments {
+        StudentExamEntity::update_many()
+            .col_expr(Column::IpAddr, Expr::value(item.ip_addr))
+            .filter(Column::Id.eq(item.student_exam_id))
+            .filter(Column::ExamId.eq(exam_id.to_string()))
+            .exec(&txn)
+            .await?;
+    }
+
+    txn.commit().await?;
+    get_student_device_assignments_by_exam_id(db, exam_id).await
 }

@@ -3,7 +3,6 @@ import {
   BarChartOutlined,
   ControlOutlined,
   DesktopOutlined,
-  EditOutlined,
   ImportOutlined,
   MonitorOutlined,
   TeamOutlined,
@@ -28,10 +27,10 @@ const menuItems = [
     icon: <ImportOutlined />,
     label: "学生引入",
   },
-  { key: "/devices/assign", icon: <DesktopOutlined />, label: "分配设备" },
+  { key: "/students/assign", icon: <DesktopOutlined />, label: "分配考生" },
   { key: "/exam/manage", icon: <ControlOutlined />, label: "考试管理" },
   { key: "/monitor", icon: <MonitorOutlined />, label: "实时监考" },
-  { key: "/grading", icon: <EditOutlined />, label: "主观阅卷" },
+//   { key: "/grading", icon: <EditOutlined />, label: "主观阅卷" },
   { key: "/report", icon: <BarChartOutlined />, label: "成绩报告" },
 ];
 

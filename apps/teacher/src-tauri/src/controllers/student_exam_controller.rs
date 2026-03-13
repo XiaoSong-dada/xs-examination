@@ -47,3 +47,25 @@ pub async fn import_students_by_exam_id(
         Err(err) => Err(err.to_string()),
     }
 }
+
+#[tauri::command]
+pub async fn get_student_device_assignments_by_exam_id(
+    state: State<'_, AppState>,
+    payload: student_exam_schema::GetStudentExamsInput,
+) -> Result<Vec<student_exam_schema::StudentDeviceAssignDto>, String> {
+    let pool = &state.db;
+    student_exam_service::list_student_device_assignments_by_exam_id(pool, payload.exam_id)
+        .await
+        .map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+pub async fn assign_devices_to_student_exams(
+    state: State<'_, AppState>,
+    payload: student_exam_schema::AssignDevicesToStudentExamsInput,
+) -> Result<Vec<student_exam_schema::StudentDeviceAssignDto>, String> {
+    let pool = &state.db;
+    student_exam_service::assign_devices_to_student_exams(pool, payload.exam_id, payload.assignments)
+        .await
+        .map_err(|err| err.to_string())
+}

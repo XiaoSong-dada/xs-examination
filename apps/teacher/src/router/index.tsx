@@ -30,7 +30,7 @@ export const router = createBrowserRouter([
 				element: <DevicesPage />,
 			},
 			{
-				path: "devices/assign",
+				path: "students/assign",
 				element: <DeviceAssignPage />,
 			},
 			{

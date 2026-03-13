@@ -30,3 +30,25 @@ pub struct ImportStudentsByExamIdInput {
     pub exam_id: String,
     pub student_ids: Vec<String>,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+pub struct StudentDeviceAssignDto {
+    pub student_exam_id: String,
+    pub student_id: String,
+    pub student_no: String,
+    pub student_name: String,
+    pub ip_addr: Option<String>,
+    pub device_name: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct AssignStudentDeviceItem {
+    pub student_exam_id: String,
+    pub ip_addr: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct AssignDevicesToStudentExamsInput {
+    pub exam_id: String,
+    pub assignments: Vec<AssignStudentDeviceItem>,
+}
