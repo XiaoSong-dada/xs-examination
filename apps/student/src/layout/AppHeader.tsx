@@ -7,7 +7,7 @@ export default function AppHeader() {
   const assigned = useDeviceStore((s) => s.assignedStudent);
 
   return (
-    <header className="border-b border-slate-200 bg-white px-4 py-3">
+    <header className="border-slate-200 bg-white px-4 py-3">
       <div className="mx-auto flex w-full max-w-7xl items-center justify-between">
         <div className="text-base font-semibold text-slate-900">
           {currentExam
