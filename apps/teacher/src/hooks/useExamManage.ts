@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { useAllExamList } from "@/hooks/useExam";
-import { useExamStudents } from "@/hooks/useExamStudents";
 import { getExamById, updateExam } from "@/services/examService";
-import type { StudentListItem } from "@/types/main";
+import type { StudentDeviceAssignItem } from "@/types/main";
+import { useDeviceAssign } from "./useDeviceAssign";
 
 export interface ExamManageTableItem {
   id: string;
@@ -27,12 +27,12 @@ const examStatusLabelMap: Record<string, string> = {
 export function useExamManage() {
   const { exams, loading: examLoading, refresh: refreshExamList } = useAllExamList();
   const {
-    students,
+    getAssignStudentByExamId,
     loading: studentLoading,
-    fetchStudentsByExamId,
-  } = useExamStudents();
+  } = useDeviceAssign();
 
   const [selectedExamId, setSelectedExamId] = useState<string>();
+  const [students, setStudents] = useState<StudentDeviceAssignItem[]>([]);
   const [currentExamStatus, setCurrentExamStatus] = useState<string>("draft");
   const [distributing, setDistributing] = useState(false);
   const [starting, setStarting] = useState(false);
@@ -60,12 +60,13 @@ export function useExamManage() {
 
   useEffect(() => {
     const loadData = async () => {
-      await fetchStudentsByExamId(selectedExamId);
+      const student = await getAssignStudentByExamId(selectedExamId ?? "");
+      setStudents(student ?? []);
       await loadExamStatus(selectedExamId);
     };
 
     void loadData();
-  }, [fetchStudentsByExamId, loadExamStatus, selectedExamId]);
+  }, [getAssignStudentByExamId, loadExamStatus, selectedExamId]);
 
   const updateExamStatus = useCallback(
     async (status: string) => {
@@ -123,12 +124,12 @@ export function useExamManage() {
 
   const tableData = useMemo<ExamManageTableItem[]>(
     () =>
-      students.map((student: StudentListItem) => ({
-        id: student.id,
-        name: student.name,
-        deviceIp: "-",
-        linkStatus: "未连接",
-        status: "待考",
+      students.map((student: StudentDeviceAssignItem) => ({
+        id: student.student_id,
+        name: student.student_name,
+        deviceIp: student.ip_addr ?? "-",
+        linkStatus: student.ip_addr ? "已连接" : "未连接",
+        status: student.ip_addr ? "已分配" : "待考",
       })),
     [students],
   );

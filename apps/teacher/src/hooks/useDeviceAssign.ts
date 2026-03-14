@@ -140,6 +140,14 @@ export function useDeviceAssign() {
     [allAssignments],
   );
 
+  const getAssignStudentByExamId = useCallback(async (examId: string) => {
+    if (!examId) {
+      return undefined;
+    }
+    const student = await getStudentDeviceAssignmentsByExamId(examId);
+    return student;
+  }, []);
+
   return {
     loading,
     assigning,
@@ -152,6 +160,7 @@ export function useDeviceAssign() {
     studentCount: allAssignments.length,
     deviceCount: allDevices.length,
     assignedCount: tableData.filter((item) => item.assigned).length,
+    getAssignStudentByExamId,
     refresh,
   } as const;
 }
