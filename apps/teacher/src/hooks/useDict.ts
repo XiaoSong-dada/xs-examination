@@ -10,10 +10,10 @@ export function useExamState() {
   const map = useMemo(
     () => ({
       draft: "草稿",
-      published: "已发布",
-      active: "进行中",
-      paused: "已暂停",
+      published: "已发卷",
+      active: "考试中",
       finished: "已结束",
+      archived: "已归档",
     }),
     [],
   );

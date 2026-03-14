@@ -179,7 +179,7 @@ CREATE TABLE exams (
     end_time    INTEGER,
     pass_score  INTEGER NOT NULL,       -- 及格分数
     status      TEXT NOT NULL DEFAULT 'draft',
-                                        -- draft | published | active | paused | finished
+                      -- draft | published | active | finished | archived
     shuffle_questions INTEGER DEFAULT 0,-- 是否随机题序
     shuffle_options   INTEGER DEFAULT 0,-- 是否随机选项序
     created_at  INTEGER NOT NULL,
@@ -258,6 +258,20 @@ CREATE TABLE cheat_logs (
     occurred_at INTEGER NOT NULL
 );
 ```
+
+### 3.1.1 考试状态语义与流转
+
+教师端 `exams.status` 字段采用如下状态集合：
+
+| 状态码 | 展示文案 | 含义 | 触发条件 |
+|------|------|------|------|
+| `draft` | 草稿 | 考试配置与编辑阶段。 | 新建考试默认值 |
+| `published` | 已发卷 | 试卷已由教师端分发到学生端。 | 点击“分发试卷” |
+| `active` | 考试中 | 学生端进入正式作答阶段。 | 点击“开始考试” |
+| `finished` | 已结束 | 到达考试结束时间，停止作答与答案继续同步。 | `end_time` 到时自动切换 |
+| `archived` | 已归档 | 成绩报告已导出，考试流程归档。 | 导出成绩成功后切换 |
+
+当前版本不使用 `paused` 状态。完整状态图见 [exam_status_flow.md](exam_status_flow.md)。
 
 ### 3.2 学生端本地缓冲数据库（SQLite，加密文件）
 

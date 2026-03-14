@@ -1,8 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { useAllExamList } from "@/hooks/useExam";
-import { useExamStudents } from "@/hooks/useExamStudents";
-import type { StudentListItem, MonitorTableItem, StudentDeviceAssignItem } from "@/types/main";
+import type { MonitorTableItem, StudentDeviceAssignItem } from "@/types/main";
 import { useDeviceAssign } from "./useDeviceAssign";
 
 

@@ -15,10 +15,10 @@ export interface ExamManageTableItem {
 
 const examStatusLabelMap: Record<string, string> = {
   draft: "草稿",
-  published: "已分发",
-  active: "进行中",
-  paused: "已暂停",
+  published: "已发卷",
+  active: "考试中",
   finished: "已结束",
+  archived: "已归档",
 };
 
 /**
@@ -34,6 +34,7 @@ export function useExamManage() {
   const [selectedExamId, setSelectedExamId] = useState<string>();
   const [students, setStudents] = useState<StudentDeviceAssignItem[]>([]);
   const [currentExamStatus, setCurrentExamStatus] = useState<string>("draft");
+  const [currentExamEndTime, setCurrentExamEndTime] = useState<number | undefined>();
   const [distributing, setDistributing] = useState(false);
   const [starting, setStarting] = useState(false);
 
@@ -46,15 +47,20 @@ export function useExamManage() {
   const loadExamStatus = useCallback(async (examId?: string) => {
     if (!examId) {
       setCurrentExamStatus("draft");
+      setCurrentExamEndTime(undefined);
       return;
     }
 
     try {
       const detail = await getExamById(examId);
       setCurrentExamStatus(detail.status ?? "draft");
+      setCurrentExamEndTime(
+        typeof detail.end_time === "number" ? detail.end_time : undefined,
+      );
     } catch (error) {
       console.error("[useExamManage] 获取考试详情失败", error);
       setCurrentExamStatus("draft");
+      setCurrentExamEndTime(undefined);
     }
   }, []);
 
@@ -98,6 +104,26 @@ export function useExamManage() {
     },
     [refreshExamList, selectedExamId],
   );
+
+  useEffect(() => {
+    if (!selectedExamId || !currentExamEndTime || currentExamStatus !== "active") {
+      return;
+    }
+
+    const msLeft = currentExamEndTime - Date.now();
+    if (msLeft <= 0) {
+      void updateExamStatus("finished");
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      void updateExamStatus("finished");
+    }, msLeft);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [currentExamEndTime, currentExamStatus, selectedExamId, updateExamStatus]);
 
   const distributePapers = useCallback(async () => {
     setDistributing(true);
