@@ -2,8 +2,9 @@ import { Progress, Select, Table, Tag } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { useRef } from "react";
 
-import { useMonitor, type MonitorTableItem } from "@/hooks/useMonitor";
+import { useMonitor } from "@/hooks/useMonitor";
 import { useTableHeight } from "@/hooks/useTableHeight";
+import type {MonitorTableItem} from "@/types/main";
 
 const linkStatusColorMap: Record<string, string> = {
   已连接: "green",
