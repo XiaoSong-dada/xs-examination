@@ -17,6 +17,7 @@ import type { ColumnsType } from "antd/es/table";
 import dayjs, { type Dayjs } from "@/utils/dayjs";
 import type { ExamListItem, IExamCreate, IExamEditor } from "@/types/main";
 import { useTableHeight } from "@/hooks/useTableHeight";
+import useExamState from "@/hooks/useDict";
 import {
   useExamModal,
   useExamList,
@@ -31,8 +32,8 @@ const statusColorMap: Record<string, string> = {
   draft: "default",
   published: "blue",
   active: "green",
-  paused: "orange",
-  finished: "purple",
+  finished: "volcano",
+  archived: "cyan",
 };
 
 
@@ -42,6 +43,7 @@ const statusColorMap: Record<string, string> = {
  * @returns 返回包含 Toolbar、列表表格和分页器的页面。
  */
 export function DashboardPage() {
+  const examState = useExamState();
   const {
     loading,
     inputKeyword,
@@ -150,7 +152,9 @@ export function DashboardPage() {
       key: "status",
       width: 140,
       render: (status: string) => (
-        <Tag color={statusColorMap[status] ?? "default"}>{status}</Tag>
+        <Tag color={statusColorMap[status] ?? "default"}>
+          {examState[status as keyof typeof examState] ?? status}
+        </Tag>
       ),
     },
     {

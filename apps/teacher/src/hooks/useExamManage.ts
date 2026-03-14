@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { useAllExamList } from "@/hooks/useExam";
-import { useExamStudents } from "@/hooks/useExamStudents";
 import { getExamById, updateExam } from "@/services/examService";
-import type { StudentListItem } from "@/types/main";
+import type { StudentDeviceAssignItem } from "@/types/main";
+import { useDeviceAssign } from "./useDeviceAssign";
 
 export interface ExamManageTableItem {
   id: string;
@@ -15,10 +15,10 @@ export interface ExamManageTableItem {
 
 const examStatusLabelMap: Record<string, string> = {
   draft: "草稿",
-  published: "已分发",
-  active: "进行中",
-  paused: "已暂停",
+  published: "已发卷",
+  active: "考试中",
   finished: "已结束",
+  archived: "已归档",
 };
 
 /**
@@ -27,13 +27,14 @@ const examStatusLabelMap: Record<string, string> = {
 export function useExamManage() {
   const { exams, loading: examLoading, refresh: refreshExamList } = useAllExamList();
   const {
-    students,
+    getAssignStudentByExamId,
     loading: studentLoading,
-    fetchStudentsByExamId,
-  } = useExamStudents();
+  } = useDeviceAssign();
 
   const [selectedExamId, setSelectedExamId] = useState<string>();
+  const [students, setStudents] = useState<StudentDeviceAssignItem[]>([]);
   const [currentExamStatus, setCurrentExamStatus] = useState<string>("draft");
+  const [currentExamEndTime, setCurrentExamEndTime] = useState<number | undefined>();
   const [distributing, setDistributing] = useState(false);
   const [starting, setStarting] = useState(false);
 
@@ -46,26 +47,32 @@ export function useExamManage() {
   const loadExamStatus = useCallback(async (examId?: string) => {
     if (!examId) {
       setCurrentExamStatus("draft");
+      setCurrentExamEndTime(undefined);
       return;
     }
 
     try {
       const detail = await getExamById(examId);
       setCurrentExamStatus(detail.status ?? "draft");
+      setCurrentExamEndTime(
+        typeof detail.end_time === "number" ? detail.end_time : undefined,
+      );
     } catch (error) {
       console.error("[useExamManage] 获取考试详情失败", error);
       setCurrentExamStatus("draft");
+      setCurrentExamEndTime(undefined);
     }
   }, []);
 
   useEffect(() => {
     const loadData = async () => {
-      await fetchStudentsByExamId(selectedExamId);
+      const student = await getAssignStudentByExamId(selectedExamId ?? "");
+      setStudents(student ?? []);
       await loadExamStatus(selectedExamId);
     };
 
     void loadData();
-  }, [fetchStudentsByExamId, loadExamStatus, selectedExamId]);
+  }, [getAssignStudentByExamId, loadExamStatus, selectedExamId]);
 
   const updateExamStatus = useCallback(
     async (status: string) => {
@@ -98,6 +105,26 @@ export function useExamManage() {
     [refreshExamList, selectedExamId],
   );
 
+  useEffect(() => {
+    if (!selectedExamId || !currentExamEndTime || currentExamStatus !== "active") {
+      return;
+    }
+
+    const msLeft = currentExamEndTime - Date.now();
+    if (msLeft <= 0) {
+      void updateExamStatus("finished");
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      void updateExamStatus("finished");
+    }, msLeft);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [currentExamEndTime, currentExamStatus, selectedExamId, updateExamStatus]);
+
   const distributePapers = useCallback(async () => {
     setDistributing(true);
     try {
@@ -123,12 +150,12 @@ export function useExamManage() {
 
   const tableData = useMemo<ExamManageTableItem[]>(
     () =>
-      students.map((student: StudentListItem) => ({
-        id: student.id,
-        name: student.name,
-        deviceIp: "-",
-        linkStatus: "未连接",
-        status: "待考",
+      students.map((student: StudentDeviceAssignItem) => ({
+        id: student.student_id,
+        name: student.student_name,
+        deviceIp: student.ip_addr ?? "-",
+        linkStatus: student.ip_addr ? "已连接" : "未连接",
+        status: student.ip_addr ? "已分配" : "待考",
       })),
     [students],
   );

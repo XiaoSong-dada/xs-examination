@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { useAllExamList } from "@/hooks/useExam";
-import { useExamStudents } from "@/hooks/useExamStudents";
-import type { StudentListItem, MonitorTableItem } from "@/types/main";
+import type { MonitorTableItem, StudentDeviceAssignItem } from "@/types/main";
+import { useDeviceAssign } from "./useDeviceAssign";
 
 
 /**
@@ -11,11 +11,11 @@ import type { StudentListItem, MonitorTableItem } from "@/types/main";
 export function useMonitor() {
   const { exams, loading: examLoading } = useAllExamList();
   const {
-    students,
+    getAssignStudentByExamId,
     loading: studentLoading,
-    fetchStudentsByExamId,
-  } = useExamStudents();
+  } = useDeviceAssign();
 
+  const [students, setStudents] = useState<StudentDeviceAssignItem[]>([]);
   const [selectedExamId, setSelectedExamId] = useState<string>();
 
   useEffect(() => {
@@ -25,8 +25,9 @@ export function useMonitor() {
   }, [exams, selectedExamId]);
 
   const refresh = useCallback(async () => {
-    await fetchStudentsByExamId(selectedExamId);
-  }, [fetchStudentsByExamId, selectedExamId]);
+    const students = await getAssignStudentByExamId(selectedExamId ?? "");
+    setStudents(students ?? []);
+  }, [getAssignStudentByExamId, selectedExamId]);
 
   useEffect(() => {
     void refresh();
@@ -39,11 +40,11 @@ export function useMonitor() {
 
   const tableData = useMemo<MonitorTableItem[]>(
     () =>
-      students.map((student: StudentListItem) => ({
-        id: student.id,
-        name: student.name,
-        deviceIp: "-",
-        linkStatus: "未连接",
+      students.map((student: StudentDeviceAssignItem) => ({
+        id: student.student_id,
+        name: student.student_name,
+        deviceIp: student.ip_addr ?? "-",
+        linkStatus: student.ip_addr ? "已连接" : "未连接",
         answerProgress: 0,
       })),
     [students],

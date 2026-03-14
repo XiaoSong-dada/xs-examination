@@ -1,4 +1,4 @@
-export type ExamStatus = "draft" | "published" | "active" | "paused" | "finished";
+export type ExamStatus = "draft" | "published" | "active" | "finished" | "archived";
 
 export interface Exam {
   id: string;

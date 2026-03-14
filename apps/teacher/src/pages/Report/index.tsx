@@ -52,8 +52,8 @@ export function ReportPage() {
     },
   ];
 
-  const handleExport = () => {
-    const ok = exportReport();
+  const handleExport = async () => {
+    const ok = await exportReport();
     if (ok) {
       message.success("成绩报告导出成功");
     } else {
@@ -79,7 +79,7 @@ export function ReportPage() {
             options={examOptions}
             onChange={setSelectedExamId}
           />
-          <Button type="primary" loading={exporting} onClick={handleExport}>
+          <Button type="primary" loading={exporting} onClick={() => void handleExport()}>
             导出成绩
           </Button>
         </div>

@@ -3,6 +3,7 @@ import * as XLSX from "xlsx";
 
 import { useAllExamList } from "@/hooks/useExam";
 import { useExamStudents } from "@/hooks/useExamStudents";
+import { getExamById, updateExam } from "@/services/examService";
 import type { StudentListItem } from "@/types/main";
 
 export interface ReportTableItem {
@@ -63,7 +64,7 @@ export function useReport() {
     [students],
   );
 
-  const exportReport = useCallback(() => {
+  const exportReport = useCallback(async () => {
     setExporting(true);
     try {
       const rows = tableData.map((item) => ({
@@ -79,6 +80,24 @@ export function useReport() {
 
       const fileName = `${selectedExamTitle}-成绩报告.xlsx`;
       XLSX.writeFile(workbook, fileName);
+
+      if (selectedExamId) {
+        const detail = await getExamById(selectedExamId);
+        if (detail.status !== "archived") {
+          await updateExam({
+            id: detail.id,
+            title: detail.title,
+            description: detail.description,
+            start_time: detail.start_time,
+            end_time: detail.end_time,
+            pass_score: detail.pass_score,
+            status: "archived",
+            shuffle_questions: detail.shuffle_questions,
+            shuffle_options: detail.shuffle_options,
+          });
+        }
+      }
+
       return true;
     } catch (error) {
       console.error("[useReport] 导出成绩失败", error);
@@ -86,7 +105,7 @@ export function useReport() {
     } finally {
       setExporting(false);
     }
-  }, [selectedExamTitle, tableData]);
+  }, [selectedExamId, selectedExamTitle, tableData]);
 
   return {
     selectedExamId,
