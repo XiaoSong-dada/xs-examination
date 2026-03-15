@@ -135,7 +135,7 @@ xs-examination/
 │       └── src/                  # React 前端（学生端 UI）
 │           ├── pages/
 │           │   ├── Discovery/        # 自动发现考试/局域网搜索页
-│           │   ├── Login/            # 学号/姓名登录
+│           │   ├── Assignment/       # 设备分配确认页（展示本机对应考生与考试）
 │           │   ├── WaitingRoom/      # 候考室
 │           │   ├── Exam/             # 考试主页面（沉浸模式）
 │           │   │   ├── QuestionPanel.tsx  # 题目显示区
@@ -273,32 +273,134 @@ CREATE TABLE cheat_logs (
 
 当前版本不使用 `paused` 状态。完整状态图见 [exam_status_flow.md](exam_status_flow.md)。
 
-### 3.2 学生端本地缓冲数据库（SQLite，加密文件）
+### 3.2 学生端本地缓冲数据库（SQLite，加密文件，待评审建议）
+
+学生端数据库不建议直接复制教师端主库结构，而应定位为“单机缓存 + 离线恢复 + 出站同步队列”。
+教师端仍然是权威数据源，学生端只保留作答过程中必须本地持久化的数据副本。
+
+在当前真实流程下，学生端不是“学生登录后选择考试”，而是“教师先完成设备分配，学生到指定设备就座后等待试卷分发与开考”。
+这意味着学生端通常不需要传统登录页；如果确实需要一层交互，也更适合是“设备分配确认页/到场确认页”，用于展示本机已绑定的考试、考生和设备信息，而不是让学生自行输入学号姓名。
+
+基于教师端现有表结构，学生端数据库建议遵循以下原则：
+
+1. 与教师端对齐标识，不对齐职责。学生端保留 exam_id、student_id、student_exam_id、assigned_ip_addr、question_id 等关键标识，便于回传时与教师端的 exams、students、student_exams、devices、answer_sheets 对应，但不在本地重复维护教师端完整业务表。
+2. 不在学生端落地标准答案。教师端 questions.answer、score_summary、cheat_logs 属于服务端权威数据，学生端本地只保存考试快照、我的答案、待同步事件，避免泄题和双向冲突。
+3. 所有本地写操作都围绕“考试会话”建模。教师端已经把学生信息拆成 students 与 student_exams，学生端也应以一次参考记录为核心，而不是仅用 question_id 做主键，否则无法支持补考、多场考试或缓存残留清理。
+4. 同步采用 Outbox 模式。离线期间先入本地队列，网络恢复后按顺序回放，避免把同步状态直接揉进业务表导致状态不清。
+5. 迁移粒度保持小而明确。延续教师端做法，每个迁移只做一次 DDL 变化，避免把整个学生端 schema 堆进一个大文件里，便于后续增量演进。
+
+建议的学生端本地库结构如下：
 
 ```sql
--- 当前考试快照（从教师端下发，AES-256-GCM 加密存储）
-CREATE TABLE local_exam (
-    id          TEXT PRIMARY KEY,
-    data        BLOB NOT NULL,          -- 加密后的考试元数据 JSON
-    expires_at  INTEGER NOT NULL
+-- 当前设备收到并激活的考试会话，一次参考一条记录
+-- 对齐教师端 student_exams，但只保留学生端运行必需字段
+CREATE TABLE exam_sessions (
+  id                TEXT PRIMARY KEY,       -- 本地会话 id，可直接复用 teacher.student_exams.id
+  exam_id           TEXT NOT NULL,
+  assigned_ip_addr  TEXT NOT NULL,
+  assigned_device_name TEXT,
+  student_id        TEXT NOT NULL,
+  student_no        TEXT NOT NULL,
+  student_name      TEXT NOT NULL,
+  exam_title        TEXT NOT NULL,
+  status            TEXT NOT NULL,          -- waiting | active | submitted | finished | expired
+  assignment_status TEXT NOT NULL,          -- assigned | paper_distributed | started | submitted
+  started_at        INTEGER,
+  ends_at           INTEGER,
+  paper_version     TEXT,                   -- 试卷版本号/签名，用于判断是否需要重拉快照
+  encryption_nonce  BLOB,                   -- 本地加密字段使用的随机参数
+  last_synced_at    INTEGER,
+  created_at        INTEGER NOT NULL,
+  updated_at        INTEGER NOT NULL
 );
 
--- 本地答案缓存（离线时持续写入）
+CREATE INDEX idx_exam_sessions_exam_id ON exam_sessions(exam_id);
+CREATE INDEX idx_exam_sessions_assigned_ip_addr ON exam_sessions(assigned_ip_addr);
+CREATE INDEX idx_exam_sessions_student_id ON exam_sessions(student_id);
+
+-- 试卷快照，只保存学生端真正需要展示的内容
+-- 不保存标准答案、评分结果、教师备注等敏感字段
+CREATE TABLE exam_snapshots (
+  session_id        TEXT PRIMARY KEY REFERENCES exam_sessions(id) ON DELETE CASCADE,
+  exam_meta         BLOB NOT NULL,          -- 加密后的考试元数据 JSON
+  questions_payload BLOB NOT NULL,          -- 加密后的题目列表 JSON（不含 answer/explanation）
+  downloaded_at     INTEGER NOT NULL,
+  expires_at        INTEGER,
+  updated_at        INTEGER NOT NULL
+);
+
+-- 本地答案表，按考试会话 + 题目维度存储
+-- revision 用于解决重复提交和增量同步
 CREATE TABLE local_answers (
-    question_id TEXT PRIMARY KEY,
-    answer      TEXT,
-    updated_at  INTEGER NOT NULL,
-    synced      INTEGER DEFAULT 0       -- 0: 未同步，1: 已同步
+  id                TEXT PRIMARY KEY,
+  session_id        TEXT NOT NULL REFERENCES exam_sessions(id) ON DELETE CASCADE,
+  question_id       TEXT NOT NULL,
+  answer            TEXT,
+  answer_blob       BLOB,                   -- 可选：敏感题型采用加密 BLOB 落地
+  revision          INTEGER NOT NULL DEFAULT 1,
+  sync_status       TEXT NOT NULL DEFAULT 'pending',   -- pending | syncing | synced | failed
+  last_synced_at    INTEGER,
+  updated_at        INTEGER NOT NULL,
+  UNIQUE(session_id, question_id)
 );
 
--- 网络同步队列（断网时积攒，重连后批量上传）
-CREATE TABLE sync_queue (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    payload     TEXT NOT NULL,          -- 加密序列化的消息体
-    created_at  INTEGER NOT NULL,
-    retry_count INTEGER DEFAULT 0
+CREATE INDEX idx_local_answers_session_id ON local_answers(session_id);
+CREATE INDEX idx_local_answers_sync_status ON local_answers(sync_status);
+
+-- 出站同步队列表，统一承载答案同步、状态上报、作弊告警、主动交卷等事件
+CREATE TABLE sync_outbox (
+  id                INTEGER PRIMARY KEY AUTOINCREMENT,
+  session_id        TEXT NOT NULL REFERENCES exam_sessions(id) ON DELETE CASCADE,
+  event_type        TEXT NOT NULL,          -- ANSWER_SYNC | STATUS_UPDATE | CHEAT_ALERT | SUBMIT
+  aggregate_id      TEXT,                   -- 例如 question_id，便于幂等去重
+  payload           BLOB NOT NULL,          -- 加密后的消息体
+  status            TEXT NOT NULL DEFAULT 'pending',   -- pending | sending | sent | failed
+  retry_count       INTEGER NOT NULL DEFAULT 0,
+  next_retry_at     INTEGER,
+  last_error        TEXT,
+  created_at        INTEGER NOT NULL,
+  updated_at        INTEGER NOT NULL
+);
+
+CREATE INDEX idx_sync_outbox_session_status ON sync_outbox(session_id, status);
+CREATE INDEX idx_sync_outbox_next_retry_at ON sync_outbox(next_retry_at);
+
+-- 本地运行时状态表，用于恢复当前题号、剩余时间、最后心跳等轻量状态
+-- 这类数据不值得单独建业务表，但放内存里又无法抗崩溃恢复
+CREATE TABLE runtime_kv (
+  key               TEXT PRIMARY KEY,
+  value             TEXT NOT NULL,
+  updated_at        INTEGER NOT NULL
 );
 ```
+
+建议说明：
+
+1. 用 exam_sessions 替代当前过于宽泛的 local_exam。这样能显式对齐教师端 student_exams 和 devices，也方便未来支持“一个设备上连续参加多场考试”而不串数据。
+2. exam_snapshots 继续保留“整包快照”思路，但拆成 exam_meta 与 questions_payload 两块，更利于局部失效、版本判断和后续加密策略调整。
+3. local_answers 不能只用 question_id 做主键。当前文档里的设计一旦出现两场考试题目 id 重复，或者同一设备上有历史缓存，就会直接冲突。
+4. sync_queue 建议升级成 sync_outbox，并显式记录 event_type、状态、重试时间、错误信息；否则后续做断网补发、失败重放、幂等去重时会很被动。
+5. runtime_kv 是一个很实用的小表。当前题号、最后一次心跳时间、全屏锁定状态、最近一次成功同步时间都可以先放这里，避免为每个轻量状态额外建表。
+6. 在当前业务流程里，student_no 和 student_name 不是由学生输入，而是由教师端设备分配结果下发到本机并缓存，用于界面展示和最终交卷校验。
+
+不建议在学生端本地建立的表：
+
+1. 不建议建立教师端的 questions 全量镜像表，除非后续明确需要题目级检索、增量下载或复杂草稿恢复；现阶段用加密快照更简单、安全。
+2. 不建议建立本地 score_summary。学生端不负责最终评分，尤其主观题评分结果只能以教师端为准。
+3. 不建议建立本地 cheat_logs 历史主表。学生端更适合将作弊事件写入 sync_outbox，必要时另加极简审计缓存，而不是复制教师端告警日志模型。
+
+推荐迁移拆分顺序：
+
+1. 0001_bootstrap.sql：框架初始化，占位迁移。
+2. 0002_create_exam_sessions.sql：创建 exam_sessions。
+3. 0003_create_exam_snapshots.sql：创建 exam_snapshots。
+4. 0004_create_local_answers.sql：创建 local_answers 与相关索引。
+5. 0005_create_sync_outbox.sql：创建 sync_outbox 与相关索引。
+6. 0006_create_runtime_kv.sql：创建 runtime_kv。
+
+如果后续确认学生端确实只允许“同一时刻一个活动考试”，仍然建议保留 session_id 这层抽象。它会让本地数据清理、重连恢复、故障排查和未来扩展都简单很多。
+
+从交互角度看，学生端建议采用以下流程：设备启动 → 自动发现/接收教师端分配 → 展示 Assignment 页面确认本机绑定的考试与考生 → 接收试卷快照 → 进入 WaitingRoom → 教师点击开始考试后进入 Exam 页面。这样比“登录 -> 选考试”更符合当前业务真相。
 
 ### 3.3 WebSocket 消息协议（TypeScript 类型）
 
@@ -405,7 +507,7 @@ mdns.register(service_info)?;
 
 **方案**：
 - 使用 `aes-gcm` crate（AES-256-GCM）对 SQLite 数据库文件整体加密（配合 SQLCipher），或对敏感字段单独加密存储为 BLOB。
-- 加密密钥 = `HMAC(考试ID + 学生ID + 设备指纹)`，由教师端在学生登录时下发密钥种子，本地派生实际密钥，避免密钥明文传输。
+- 加密密钥 = `HMAC(考试ID + 学生ID + 设备指纹)`，由教师端在设备分配确认或试卷下发阶段下发密钥种子，本地派生实际密钥，避免密钥明文传输。
 - 学生端进程退出后，内存中的明文密钥即清除。
 
 ---
@@ -463,7 +565,7 @@ mdns.register(service_info)?;
 **方案**：
 - 所有 WS 消息附带 `timestamp`（Unix ms）和 `signature`（HMAC-SHA256）。
 - 教师端维护一个 最近 5 分钟已处理消息签名的滑动窗口集合（HashSet），收到重复签名直接丢弃。
-- 密钥在学生登录握手阶段通过一次性临时 Token 协商，每次考试会话独立。
+- 密钥在设备绑定后的握手阶段通过一次性临时 Token 协商，每次考试会话独立。
 
 ---
 
@@ -550,6 +652,6 @@ export default {
 
 | 版本 | 功能 | 重点技术实现 |
 |------|------|-------------|
-| V1.0 MVP | 创建考试、Excel 导入、学生登录答题、客观题自动评分、成绩导出 | mDNS 发现、WS 基础通信、本地 SQLite、断网缓存、客观题评分引擎 |
+| V1.0 MVP | 创建考试、Excel 导入、设备分配、试卷分发、学生就座答题、客观题自动评分、成绩导出 | mDNS 发现、WS 基础通信、本地 SQLite、断网缓存、客观题评分引擎 |
 | V1.5 | 主观题阅卷、防作弊全屏+热键拦截、录屏上传 | windows-rs 键盘钩子、scrap 录屏、阅卷工作流 API |
 | V2.0 | 教师端集群高可用、故障自动转移 | 基于 Raft 的状态同步或 SQLite WAL 共享 + Leader 选举 |
