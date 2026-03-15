@@ -9,6 +9,8 @@ use tauri::{AppHandle, Manager};
 
 use crate::config::AppConfig;
 
+pub mod models;
+
 /// 初始化 SQLite 数据库连接池。
 ///
 /// 数据库文件保存在系统 AppData 目录下，文件名来自 `AppConfig::db_name`。
