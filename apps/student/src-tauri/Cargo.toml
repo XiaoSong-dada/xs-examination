@@ -29,4 +29,6 @@ anyhow = "1"
 dotenvy = "0.15"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 uuid = { version = "1", features = ["v4"] }
+tokio-tungstenite = "0.24"
+futures-util = "0.3"
 

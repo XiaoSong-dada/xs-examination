@@ -25,6 +25,14 @@ pub fn run() {
             let app_state = tauri::async_runtime::block_on(state::AppState::new(&app_handle))
                 .map_err(|e| std::io::Error::other(e.to_string()))?;
             app.manage(app_state);
+
+            let ws_app_handle = app_handle.clone();
+            tauri::async_runtime::spawn(async move {
+                if let Err(err) = crate::network::ws_server::start_ws_server(ws_app_handle).await {
+                    eprintln!("[ws-server] stopped with error: {}", err);
+                }
+            });
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -52,6 +60,7 @@ pub fn run() {
             controllers::student_exam_controller::assign_devices_to_student_exams,
             controllers::question_controller::get_questions,
             controllers::question_controller::bulk_import_questions,
+            controllers::network_controller::get_online_students,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

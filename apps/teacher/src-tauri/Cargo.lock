@@ -5554,6 +5554,7 @@ dependencies = [
  "chrono",
  "dashmap",
  "dotenvy",
+ "futures-util",
  "hex",
  "hmac",
  "mdns-sd",
