@@ -2,6 +2,7 @@ pub mod config;
 pub mod db;
 pub mod state;
 pub mod commands;
+pub mod network;
 
 use tauri::Manager;
 
@@ -18,6 +19,9 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::test_db_connection,
+            commands::connect_teacher_ws,
+            commands::send_answer_sync,
+            commands::get_ws_status,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
