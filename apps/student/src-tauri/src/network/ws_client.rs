@@ -3,12 +3,13 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use anyhow::{Context, Result};
 use futures_util::{SinkExt, StreamExt};
 use serde_json::json;
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 use tokio::sync::mpsc;
 use tokio::time::{sleep, Duration};
 use tokio_tungstenite::{connect_async, tungstenite::Message};
 
 use crate::network::protocol::{HeartbeatPayload, MessageType, WsMessage};
+use crate::schemas::teacher_endpoint_schema::WsConnectionEvent;
 
 fn now_ms() -> i64 {
     SystemTime::now()
@@ -46,7 +47,17 @@ pub async fn connect(
         state.set_ws_connected(true);
     }
 
+    let _ = app_handle.emit(
+        "ws_connected",
+        WsConnectionEvent {
+            endpoint: Some(ws_url.clone()),
+            connected: true,
+            message: None,
+        },
+    );
+
     let app_for_writer = app_handle.clone();
+    let ws_url_for_writer = ws_url.clone();
     tokio::spawn(async move {
         while let Some(text) = rx.recv().await {
             if let Err(err) = writer.send(Message::Text(text.into())).await {
@@ -58,6 +69,15 @@ pub async fn connect(
         let state = app_for_writer.state::<crate::state::AppState>();
         state.set_ws_connected(false);
         state.clear_ws_sender();
+
+        let _ = app_for_writer.emit(
+            "ws_disconnected",
+            WsConnectionEvent {
+                endpoint: Some(ws_url_for_writer),
+                connected: false,
+                message: Some("连接已关闭".to_string()),
+            },
+        );
     });
 
     tokio::spawn(async move {

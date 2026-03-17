@@ -40,6 +40,7 @@ pub fn run() {
             commands::connect_teacher_ws,
             commands::send_answer_sync,
             commands::get_ws_status,
+            commands::get_teacher_runtime_status,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

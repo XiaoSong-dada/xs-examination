@@ -2,7 +2,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{anyhow, Result};
 use sea_orm::{
-    ActiveModelTrait, EntityTrait, Set, TransactionTrait,
+    ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, Set, TransactionTrait,
 };
 use tauri::Manager;
 
@@ -61,5 +61,15 @@ impl TeacherEndpointsService {
             .iter()
             .find(|e| e.is_master)
             .map(|e| e.endpoint.clone())
+    }
+
+    pub async fn get_master_endpoint(app_handle: &tauri::AppHandle) -> Result<Option<String>> {
+        let state = app_handle.state::<crate::state::AppState>();
+        let master = teacher_endpoints::Entity::find()
+            .filter(teacher_endpoints::Column::IsMaster.eq(1))
+            .one(&state.db)
+            .await?;
+
+        Ok(master.map(|item| item.endpoint))
     }
 }

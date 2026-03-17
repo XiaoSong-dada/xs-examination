@@ -1,6 +1,8 @@
 use tauri::State;
 
+use crate::schemas::teacher_endpoint_schema;
 use crate::state::AppState;
+use crate::services::teacher_endpoints_service::TeacherEndpointsService;
 
 #[tauri::command]
 pub async fn test_db_connection(state: State<'_, AppState>) -> Result<String, String> {
@@ -50,4 +52,26 @@ pub async fn send_answer_sync(
 #[tauri::command]
 pub async fn get_ws_status(state: State<'_, AppState>) -> Result<bool, String> {
     Ok(state.ws_connected())
+}
+
+#[tauri::command]
+pub async fn get_teacher_runtime_status(
+    app_handle: tauri::AppHandle,
+    state: State<'_, AppState>,
+) -> Result<teacher_endpoint_schema::TeacherRuntimeStatusDto, String> {
+    let endpoint = TeacherEndpointsService::get_master_endpoint(&app_handle)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let connection_status = if state.ws_connected() {
+        "connected"
+    } else {
+        "disconnected"
+    }
+    .to_string();
+
+    Ok(teacher_endpoint_schema::TeacherRuntimeStatusDto {
+        endpoint,
+        connection_status,
+    })
 }

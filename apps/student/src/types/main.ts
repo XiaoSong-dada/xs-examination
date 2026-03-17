@@ -9,12 +9,37 @@ export interface AssignedStudent {
   name: string;
 }
 
+export type TeacherConnectionStatus =
+  | "connected"
+  | "disconnected"
+  | "connecting"
+  | "unknown";
+
+export interface TeacherRuntimeStatus {
+  endpoint: string | null;
+  connectionStatus: TeacherConnectionStatus;
+}
+
+export interface TeacherEndpointAppliedEvent {
+  endpoint: string | null;
+}
+
+export interface WsConnectionEvent {
+  endpoint: string | null;
+  connected: boolean;
+  message?: string | null;
+}
 
 export interface DeviceStore {
   ip: string | null;
   assignedStudent: AssignedStudent | null;
+  teacherMasterEndpoint: string | null;
+  teacherConnectionStatus: TeacherConnectionStatus;
   setIp: (ip: string | null) => void;
   setAssignedStudent: (s: AssignedStudent | null) => void;
+  setTeacherMasterEndpoint: (ep: string | null) => void;
+  setTeacherConnectionStatus: (s: TeacherConnectionStatus) => void;
+  initTeacherInfo: () => Promise<void>;
 }
 
 export interface ExamStore {

@@ -1,12 +1,16 @@
 use crate::utils::datetime::now_ms;
 
 use anyhow::{Context, Result};
+use tauri::Emitter;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 
 use crate::config::AppConfig;
 use crate::schemas::control_protocol::{
     ApplyTeacherEndpointsAck, ApplyTeacherEndpointsAckPayload, ApplyTeacherEndpointsRequest,
+};
+use crate::schemas::teacher_endpoint_schema::{
+    TeacherEndpointAppliedEvent, WsConnectionEvent,
 };
 use crate::services::teacher_endpoints_service::TeacherEndpointsService;
 
@@ -72,14 +76,34 @@ async fn handle_client(app_handle: tauri::AppHandle, mut stream: TcpStream) -> R
     };
 
     if success {
+        let _ = app_handle.emit(
+            "teacher_endpoint_applied",
+            TeacherEndpointAppliedEvent {
+                endpoint: connected_master.clone(),
+            },
+        );
+    }
+
+    if success {
         if let Some(master_url) = &connected_master {
             // 骨架阶段：收到配置后立刻尝试连接主教师端，不做重试策略。
-            let _ = crate::network::ws_client::connect(
+            let connect_result = crate::network::ws_client::connect(
                 app_handle.clone(),
                 master_url.clone(),
                 req.payload.student_id.clone(),
             )
             .await;
+
+            if let Err(err) = connect_result {
+                let _ = app_handle.emit(
+                    "ws_disconnected",
+                    WsConnectionEvent {
+                        endpoint: Some(master_url.clone()),
+                        connected: false,
+                        message: Some(err.to_string()),
+                    },
+                );
+            }
         }
     }
 
