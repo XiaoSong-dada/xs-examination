@@ -1,4 +1,10 @@
-import type { DeviceListItem, IDeviceCreate, IDeviceEditor } from "@/types/main";
+import type {
+  DeviceListItem,
+  IDeviceCreate,
+  IDeviceEditor,
+  PushTeacherEndpointsPayload,
+  PushTeacherEndpointsResult,
+} from "@/types/main";
 import { invoke } from "@tauri-apps/api/core";
 
 export interface GetDeviceListParams {
@@ -49,4 +55,13 @@ export async function replaceDevicesByDiscovery(
   payload: ReplaceDevicesPayload,
 ): Promise<DeviceListItem[]> {
   return invoke<DeviceListItem[]>("replace_devices_by_discovery", { payload });
+}
+
+export async function pushTeacherEndpointsToDevices(
+  payload: PushTeacherEndpointsPayload,
+): Promise<PushTeacherEndpointsResult> {
+  return invoke<PushTeacherEndpointsResult>(
+    "push_teacher_endpoints_to_devices",
+    { payload },
+  );
 }

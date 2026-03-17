@@ -10,6 +10,7 @@ use tauri::{AppHandle, Manager};
 use crate::config::AppConfig;
 
 pub mod models;
+pub mod entities;
 
 /// 初始化 SQLite 数据库连接池。
 ///

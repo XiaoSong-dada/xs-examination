@@ -4,6 +4,10 @@ use anyhow::{Context, Result};
 pub struct AppConfig {
     /// SQLite 数据库文件名（不含路径，如 "student.db"）
     pub db_name: String,
+    /// 学生端设备发现监听端口（UDP）
+    pub listener_port: u16,
+    /// 学生端控制指令监听端口（TCP）
+    pub control_port: u16,
 }
 
 impl AppConfig {
@@ -21,6 +25,20 @@ impl AppConfig {
         let db_name = std::env::var("DB_NAME")
             .context("缺少必填环境变量: DB_NAME（SQLite 数据库文件名）")?;
 
-        Ok(Self { db_name })
+        let listener_port = std::env::var("LISTENER_PORT")
+            .ok()
+            .and_then(|v| v.parse::<u16>().ok())
+            .unwrap_or(18888);
+
+        let control_port = std::env::var("CONTROL_PORT")
+            .ok()
+            .and_then(|v| v.parse::<u16>().ok())
+            .unwrap_or(18889);
+
+        Ok(Self {
+            db_name,
+            listener_port,
+            control_port,
+        })
     }
 }

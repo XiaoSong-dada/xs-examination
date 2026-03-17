@@ -118,3 +118,14 @@ pub async fn replace_devices_by_discovery(
         Err(err) => Err(err.to_string()),
     }
 }
+
+#[tauri::command]
+pub async fn push_teacher_endpoints_to_devices(
+    state: State<'_, AppState>,
+    payload: device_schema::PushTeacherEndpointsInput,
+) -> Result<device_schema::PushTeacherEndpointsOutput, String> {
+    let pool = &state.db;
+    device_service::push_teacher_endpoints_to_devices(pool, payload)
+        .await
+        .map_err(|err| err.to_string())
+}

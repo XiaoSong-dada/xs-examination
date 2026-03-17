@@ -50,7 +50,7 @@ export function DeviceAssignPage() {
       render: (value?: string) => value ?? <Tag>未分配</Tag>,
     },
     {
-      title: "状态",
+      title: "连接状态",
       key: "assigned",
       width: 120,
       render: (_, record) =>

@@ -48,6 +48,7 @@ pub fn run() {
             controllers::device_controller::delete_device,
             controllers::device_controller::discover_student_devices,
             controllers::device_controller::replace_devices_by_discovery,
+            controllers::device_controller::push_teacher_endpoints_to_devices,
             controllers::student_controller::get_students,
             controllers::student_controller::get_student_by_id,
             controllers::student_controller::create_student,

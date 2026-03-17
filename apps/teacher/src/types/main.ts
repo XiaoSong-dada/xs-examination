@@ -124,6 +124,35 @@ export interface DeviceListItem {
   name: string;
 }
 
+export interface TeacherEndpointInput {
+  id: string;
+  endpoint: string;
+  name?: string;
+  remark?: string;
+  isMaster: boolean;
+}
+
+export interface PushTeacherEndpointsPayload {
+  deviceIds: string[];
+  endpoints: TeacherEndpointInput[];
+  controlPort?: number;
+}
+
+export interface PushTeacherEndpointsResultItem {
+  deviceId: string;
+  deviceIp: string;
+  success: boolean;
+  message: string;
+  connectedMaster?: string;
+}
+
+export interface PushTeacherEndpointsResult {
+  requestId: string;
+  total: number;
+  successCount: number;
+  results: PushTeacherEndpointsResultItem[];
+}
+
 export interface UseDeviceListResult {
   loading: boolean;
   inputIpKeyword: string;
