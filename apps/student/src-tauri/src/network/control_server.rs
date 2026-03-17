@@ -1,4 +1,4 @@
-use std::time::{SystemTime, UNIX_EPOCH};
+use crate::utils::datetime::now_ms;
 
 use anyhow::{Context, Result};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -10,12 +10,7 @@ use crate::schemas::control_protocol::{
 };
 use crate::services::teacher_endpoints_service::TeacherEndpointsService;
 
-fn now_ms() -> i64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_millis() as i64)
-        .unwrap_or_default()
-}
+
 
 pub async fn start(app_handle: tauri::AppHandle) -> Result<()> {
     let config = AppConfig::load()?;

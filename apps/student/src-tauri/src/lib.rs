@@ -5,6 +5,7 @@ pub mod commands;
 pub mod network;
 pub mod schemas;
 pub mod services;
+pub mod utils;
 
 use tauri::Manager;
 
