@@ -159,6 +159,12 @@ graph TD
     TMain -. workspace dependency .-> Shared
 ```
 
+补充说明：
+
+- `pages/DeviceAssign` 现在除了随机分配和清空分配，还会通过 `hooks/useDeviceAssign.ts` 调用新的连接与状态查询命令，把“已分配关系”和“真实连接状态”合并成表格行。
+- `pages/Monitor` 现在不再只按 `ip_addr` 推导在线状态，而是通过 `hooks/useMonitor.ts` 复用同一套状态查询链路，确保与分配页口径一致。
+- 这意味着教师端前端里与“实时连接状态”最相关的页面已从单一的 `Monitor` 扩展为 `DeviceAssign + Monitor` 共享一套 `services -> teacher-rust` 调用路径。
+
 ### 4.4 扇入 / 扇出
 
 | 模块组 | 扇入 | 扇出 |
@@ -179,6 +185,11 @@ graph TD
 - 若任务是“前端调用 Rust 命令”，优先看 `services/`。
 - 若任务是“页面表格数据形状”，优先看 `types/main.ts`。
 - 若任务是“日期、Excel、表单校验”，优先看 `utils/`。
+
+补充定位：
+
+- 若任务是“分配页连接考生设备”，优先看 `pages/DeviceAssign`、`hooks/useDeviceAssign.ts`、`services/studentService.ts`。
+- 若任务是“分配页/监考页连接状态不一致”，优先看 `hooks/useDeviceAssign.ts`、`hooks/useMonitor.ts`、`types/main.ts`。
 
 ### 4.6 说明
 
@@ -283,6 +294,11 @@ graph TD
 - `question_controller`
 - `network_controller`
 
+其中 `student_exam_controller` 当前除了原有“按考试查询学生/分配设备”命令外，还新增了两条直接服务于分配页和监考页的命令：
+
+- `connect_student_devices_by_exam_id`
+- `get_student_device_connection_status_by_exam_id`
+
 这意味着当前教师端 Rust 的主要扇入集中在 `controllers/`，主要扇出集中在 `services/`、`network/`、`state/`。
 
 ### 5.6 快速定位
@@ -291,6 +307,12 @@ graph TD
 - 若任务是“业务规则 / 聚合流程”，先看 `services/`。
 - 若任务是“实体持久化”，先看 `repos/`、`models/`、`db/`。
 - 若任务是“WebSocket / mDNS / 控制分发”，先看 `network/`。
+
+补充定位：
+
+- 若任务是“按考试批量连接已分配设备”，先看 `controllers/student_exam_controller.rs`，再看 `network/student_control_client.rs`。
+- 若任务是“真实连接状态四态聚合”，先看 `services/student_exam_service.rs` 与 `state.rs`。
+- 若任务是“为什么终端有心跳但 UI 还是未连接”，先核对下发时 `payload.student_id` 是否使用了真实学生 `student_id`，而不是设备 `device_id`。
 
 ---
 
@@ -508,6 +530,14 @@ graph TD
 | 本地数据库 / 迁移 / 实体 | 对应端的 `src-tauri/src/db/` 和 migrations |
 | 时间工具 / 通用工具 | 对应端的 `src-tauri/src/utils/` 或前端 `src/utils/` |
 
+补充关键词：
+
+| 关键词 | 首选模块 |
+|------|------|
+| 连接考生设备 / 分配页一键连接 | teacher-frontend `pages/DeviceAssign` + `hooks/useDeviceAssign.ts` + teacher-rust `controllers/student_exam_controller.rs` |
+| 连接状态四态 / 心跳超时 | teacher-rust `services/student_exam_service.rs` + `state.rs` + teacher-frontend `hooks/useDeviceAssign.ts` / `hooks/useMonitor.ts` |
+| 心跳到了但 UI 未更新 | teacher-rust `controllers/student_exam_controller.rs` + `network/ws_server.rs`，重点检查 `student_id` 映射 |
+
 ---
 
 ## 11. 当前图谱结论
@@ -518,3 +548,5 @@ graph TD
 4. 学生端 Rust 的核心复杂度集中在 `network/`，而不是 `commands/`。
 5. `shared-types` 是预期中的跨端收敛中心，但当前实际代码仍有较多本地类型分散。
 6. `.copilot` 目录已经成为任务启动入口的一部分，开始任务前应同时阅读规范、记忆库和本图谱。
+7. 教师端“实时连接状态”不再是 `Monitor` 页独有逻辑，而是 `DeviceAssign + Monitor` 共用的跨层链路：前端 hooks -> `studentService.ts` -> `student_exam_controller` -> `student_exam_service` -> `state.connections`。
+8. 这条新链路的关键主键是 `student_id`，不是 `device_id`；如果连接下发或心跳聚合时混用两者，会出现“终端有心跳、UI 仍显示未连接”的典型错位问题。
