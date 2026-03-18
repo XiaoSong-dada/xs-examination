@@ -1,6 +1,8 @@
 import type {
   IStudentCreate,
   IStudentEditor,
+  PushTeacherEndpointsResult,
+  StudentDeviceConnectionStatusItem,
   StudentDeviceAssignItem,
   StudentDeviceAssignPayloadItem,
   StudentListItem,
@@ -47,6 +49,25 @@ export async function assignDevicesToStudentExams(
       assignments,
     },
   });
+}
+
+export async function connectStudentDevicesByExamId(
+  examId: string,
+): Promise<PushTeacherEndpointsResult> {
+  return invoke<PushTeacherEndpointsResult>("connect_student_devices_by_exam_id", {
+    payload: { exam_id: examId },
+  });
+}
+
+export async function getStudentDeviceConnectionStatusByExamId(
+  examId: string,
+): Promise<StudentDeviceConnectionStatusItem[]> {
+  return invoke<StudentDeviceConnectionStatusItem[]>(
+    "get_student_device_connection_status_by_exam_id",
+    {
+      payload: { exam_id: examId },
+    },
+  );
 }
 
 export async function getStudentById(id: string): Promise<StudentListItem> {

@@ -93,6 +93,20 @@ export interface StudentDeviceAssignPayloadItem {
   ip_addr?: string;
 }
 
+export type DeviceConnectionStatus = "待分配" | "未连接" | "正常" | "异常";
+
+export interface StudentDeviceConnectionStatusItem {
+  student_exam_id: string;
+  student_id: string;
+  student_no: string;
+  student_name: string;
+  ip_addr?: string;
+  device_name?: string;
+  connection_status: DeviceConnectionStatus;
+  last_heartbeat_at?: number;
+  has_heartbeat_seen: boolean;
+}
+
 export interface UseStudentListResult {
   loading: boolean;
   inputKeyword: string;
@@ -180,6 +194,9 @@ export interface DeviceAssignRow {
   ip_addr?: string;
   device_name?: string;
   assigned: boolean;
+  connection_status: DeviceConnectionStatus;
+  last_heartbeat_at?: number;
+  has_heartbeat_seen: boolean;
 }
 
 export interface ExamOption {

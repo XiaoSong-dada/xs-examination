@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { useAllExamList } from "@/hooks/useExam";
-import type { MonitorTableItem, StudentDeviceAssignItem } from "@/types/main";
-import { useDeviceAssign } from "./useDeviceAssign";
+import { getStudentDeviceConnectionStatusByExamId } from "@/services/studentService";
+import type { MonitorTableItem, StudentDeviceConnectionStatusItem } from "@/types/main";
 
 
 /**
@@ -10,13 +10,10 @@ import { useDeviceAssign } from "./useDeviceAssign";
  */
 export function useMonitor() {
   const { exams, loading: examLoading } = useAllExamList();
-  const {
-    getAssignStudentByExamId,
-    loading: studentLoading,
-  } = useDeviceAssign();
 
-  const [students, setStudents] = useState<StudentDeviceAssignItem[]>([]);
+  const [students, setStudents] = useState<StudentDeviceConnectionStatusItem[]>([]);
   const [selectedExamId, setSelectedExamId] = useState<string>();
+  const [tableLoading, setTableLoading] = useState(false);
 
   useEffect(() => {
     if (!selectedExamId && exams.length > 0) {
@@ -25,13 +22,37 @@ export function useMonitor() {
   }, [exams, selectedExamId]);
 
   const refresh = useCallback(async () => {
-    const students = await getAssignStudentByExamId(selectedExamId ?? "");
-    setStudents(students ?? []);
-  }, [getAssignStudentByExamId, selectedExamId]);
+    if (!selectedExamId) {
+      setStudents([]);
+      return;
+    }
+
+    setTableLoading(true);
+    try {
+      const list = await getStudentDeviceConnectionStatusByExamId(selectedExamId);
+      setStudents(list);
+    } finally {
+      setTableLoading(false);
+    }
+  }, [selectedExamId]);
 
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  useEffect(() => {
+    if (!selectedExamId) {
+      return;
+    }
+
+    const timer = window.setInterval(() => {
+      void refresh();
+    }, 5000);
+
+    return () => {
+      window.clearInterval(timer);
+    };
+  }, [refresh, selectedExamId]);
 
   const examOptions = useMemo(
     () => exams.map((exam) => ({ label: exam.title, value: exam.id })),
@@ -40,11 +61,11 @@ export function useMonitor() {
 
   const tableData = useMemo<MonitorTableItem[]>(
     () =>
-      students.map((student: StudentDeviceAssignItem) => ({
+      students.map((student: StudentDeviceConnectionStatusItem) => ({
         id: student.student_id,
         name: student.student_name,
         deviceIp: student.ip_addr ?? "-",
-        linkStatus: student.ip_addr ? "已连接" : "未连接",
+        linkStatus: student.connection_status,
         answerProgress: 0,
       })),
     [students],
@@ -56,7 +77,7 @@ export function useMonitor() {
     examOptions,
     examLoading,
     tableData,
-    tableLoading: studentLoading,
+    tableLoading,
     refresh,
   } as const;
 }

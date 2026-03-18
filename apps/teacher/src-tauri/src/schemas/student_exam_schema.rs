@@ -52,3 +52,21 @@ pub struct AssignDevicesToStudentExamsInput {
     pub exam_id: String,
     pub assignments: Vec<AssignStudentDeviceItem>,
 }
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct ConnectStudentDevicesByExamInput {
+    pub exam_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+pub struct StudentDeviceConnectionStatusDto {
+    pub student_exam_id: String,
+    pub student_id: String,
+    pub student_no: String,
+    pub student_name: String,
+    pub ip_addr: Option<String>,
+    pub device_name: Option<String>,
+    pub connection_status: String,
+    pub last_heartbeat_at: Option<i64>,
+    pub has_heartbeat_seen: bool,
+}

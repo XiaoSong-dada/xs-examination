@@ -9,6 +9,7 @@ pub struct AppState {
     pub db: DatabaseConnection,
     ws_sender: Mutex<Option<UnboundedSender<String>>>,
     ws_connected: AtomicBool,
+    ws_endpoint: Mutex<Option<String>>,
 }
 
 impl AppState {
@@ -18,6 +19,7 @@ impl AppState {
             db,
             ws_sender: Mutex::new(None),
             ws_connected: AtomicBool::new(false),
+            ws_endpoint: Mutex::new(None),
         })
     }
 
@@ -31,6 +33,25 @@ impl AppState {
         if let Ok(mut guard) = self.ws_sender.lock() {
             *guard = None;
         }
+    }
+
+    pub fn set_ws_endpoint(&self, endpoint: String) {
+        if let Ok(mut guard) = self.ws_endpoint.lock() {
+            *guard = Some(endpoint);
+        }
+    }
+
+    pub fn clear_ws_endpoint(&self) {
+        if let Ok(mut guard) = self.ws_endpoint.lock() {
+            *guard = None;
+        }
+    }
+
+    pub fn ws_endpoint(&self) -> Option<String> {
+        self.ws_endpoint
+            .lock()
+            .ok()
+            .and_then(|guard| guard.as_ref().cloned())
     }
 
     pub fn ws_sender(&self) -> Option<UnboundedSender<String>> {

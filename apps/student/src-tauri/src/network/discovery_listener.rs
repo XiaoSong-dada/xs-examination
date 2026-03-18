@@ -1,17 +1,9 @@
-use std::time::{SystemTime, UNIX_EPOCH};
-
 use anyhow::{Context, Result};
 use tokio::net::UdpSocket;
 
 use crate::config::AppConfig;
 use crate::schemas::control_protocol::{DiscoverAck, DiscoverAckPayload, DiscoverRequest};
-
-fn now_ms() -> i64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_millis() as i64)
-        .unwrap_or_default()
-}
+use crate::utils::datetime::{now_ms};
 
 pub async fn start(_app_handle: tauri::AppHandle) -> Result<()> {
     let config = AppConfig::load()?;

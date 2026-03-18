@@ -32,6 +32,22 @@ pub async fn connect(
     ws_url: String,
     student_id: String,
 ) -> Result<()> {
+    {
+        let state = app_handle.state::<crate::state::AppState>();
+        if state.ws_connected() {
+            let current_endpoint = state.ws_endpoint();
+            if current_endpoint.as_deref() == Some(ws_url.as_str()) {
+                println!("[ws-client] already connected: {}", ws_url);
+                return Ok(());
+            }
+
+            return Err(anyhow::anyhow!(
+                "已存在活动 WebSocket 连接: {}",
+                current_endpoint.unwrap_or_else(|| "unknown".to_string())
+            ));
+        }
+    }
+
     let (ws_stream, _) = connect_async(&ws_url)
         .await
         .with_context(|| format!("连接教师端失败: {}", ws_url))?;
@@ -45,6 +61,7 @@ pub async fn connect(
         let state = app_handle.state::<crate::state::AppState>();
         state.set_ws_sender(tx.clone());
         state.set_ws_connected(true);
+        state.set_ws_endpoint(ws_url.clone());
     }
 
     let _ = app_handle.emit(
@@ -69,6 +86,7 @@ pub async fn connect(
         let state = app_for_writer.state::<crate::state::AppState>();
         state.set_ws_connected(false);
         state.clear_ws_sender();
+        state.clear_ws_endpoint();
 
         let _ = app_for_writer.emit(
             "ws_disconnected",

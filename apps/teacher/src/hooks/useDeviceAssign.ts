@@ -1,10 +1,18 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import type { DeviceAssignRow, DeviceListItem, ExamOption, StudentDeviceAssignItem, StudentDeviceAssignPayloadItem } from "@/types/main";
+import type {
+  DeviceAssignRow,
+  DeviceListItem,
+  ExamOption,
+  PushTeacherEndpointsResult,
+  StudentDeviceConnectionStatusItem,
+  StudentDeviceAssignPayloadItem,
+} from "@/types/main";
 import { getDeviceList } from "@/services/deviceService";
 import { getExamList } from "@/services/examService";
 import {
   assignDevicesToStudentExams,
-  getStudentDeviceAssignmentsByExamId,
+  connectStudentDevicesByExamId,
+  getStudentDeviceConnectionStatusByExamId,
 } from "@/services/studentService";
 
 
@@ -18,7 +26,7 @@ function shuffleArray<T>(items: T[]): T[] {
 }
 
 function buildRows(
-  assignments: StudentDeviceAssignItem[],
+  assignments: StudentDeviceConnectionStatusItem[],
 ): DeviceAssignRow[] {
   return assignments.map((item) => ({
     id: item.student_exam_id,
@@ -29,16 +37,20 @@ function buildRows(
     ip_addr: item.ip_addr,
     device_name: item.device_name,
     assigned: Boolean(item.ip_addr),
+    connection_status: item.connection_status,
+    last_heartbeat_at: item.last_heartbeat_at,
+    has_heartbeat_seen: item.has_heartbeat_seen,
   }));
 }
 
 export function useDeviceAssign() {
   const [loading, setLoading] = useState(false);
   const [assigning, setAssigning] = useState(false);
+  const [connecting, setConnecting] = useState(false);
   const [examOptions, setExamOptions] = useState<ExamOption[]>([]);
   const [selectedExamId, setSelectedExamId] = useState<string>();
   const [allDevices, setAllDevices] = useState<DeviceListItem[]>([]);
-  const [allAssignments, setAllAssignments] = useState<StudentDeviceAssignItem[]>([]);
+  const [allAssignments, setAllAssignments] = useState<StudentDeviceConnectionStatusItem[]>([]);
 
   const loadExams = useCallback(async () => {
     const exams = await getExamList();
@@ -53,6 +65,15 @@ export function useDeviceAssign() {
   const loadDevices = useCallback(async () => {
     const devices = await getDeviceList();
     setAllDevices(devices);
+  }, []);
+
+  const loadAssignments = useCallback(async (examId: string) => {
+    if (!examId) {
+      setAllAssignments([]);
+      return;
+    }
+    const assignments = await getStudentDeviceConnectionStatusByExamId(examId);
+    setAllAssignments(assignments);
   }, []);
 
   const refresh = useCallback(async () => {
@@ -75,14 +96,25 @@ export function useDeviceAssign() {
     }
 
     setLoading(true);
-    void getStudentDeviceAssignmentsByExamId(selectedExamId)
-      .then((assignments) => {
-        setAllAssignments(assignments);
-      })
+    void loadAssignments(selectedExamId)
       .finally(() => {
         setLoading(false);
       });
-  }, [selectedExamId]);
+  }, [loadAssignments, selectedExamId]);
+
+  useEffect(() => {
+    if (!selectedExamId) {
+      return;
+    }
+
+    const timer = window.setInterval(() => {
+      void loadAssignments(selectedExamId);
+    }, 5000);
+
+    return () => {
+      window.clearInterval(timer);
+    };
+  }, [loadAssignments, selectedExamId]);
 
   const randomAssign = useCallback(async () => {
     if (!selectedExamId || allAssignments.length === 0 || allDevices.length === 0) {
@@ -109,13 +141,13 @@ export function useDeviceAssign() {
         ip_addr: nextIpMap.get(item.student_exam_id),
       }));
 
-      const updated = await assignDevicesToStudentExams(selectedExamId, payload);
-      setAllAssignments(updated);
+      await assignDevicesToStudentExams(selectedExamId, payload);
+      await loadAssignments(selectedExamId);
       return true;
     } finally {
       setAssigning(false);
     }
-  }, [allAssignments, allDevices, selectedExamId]);
+  }, [allAssignments, allDevices, loadAssignments, selectedExamId]);
 
   const clearAssign = useCallback(async () => {
     if (!selectedExamId || allAssignments.length === 0) {
@@ -128,12 +160,27 @@ export function useDeviceAssign() {
         student_exam_id: item.student_exam_id,
         ip_addr: undefined,
       }));
-      const updated = await assignDevicesToStudentExams(selectedExamId, payload);
-      setAllAssignments(updated);
+      await assignDevicesToStudentExams(selectedExamId, payload);
+      await loadAssignments(selectedExamId);
     } finally {
       setAssigning(false);
     }
-  }, [allAssignments, selectedExamId]);
+  }, [allAssignments, loadAssignments, selectedExamId]);
+
+  const connectDevices = useCallback(async (): Promise<PushTeacherEndpointsResult | null> => {
+    if (!selectedExamId) {
+      return null;
+    }
+
+    setConnecting(true);
+    try {
+      const result = await connectStudentDevicesByExamId(selectedExamId);
+      await loadAssignments(selectedExamId);
+      return result;
+    } finally {
+      setConnecting(false);
+    }
+  }, [loadAssignments, selectedExamId]);
 
   const tableData = useMemo(
     () => buildRows(allAssignments),
@@ -144,19 +191,21 @@ export function useDeviceAssign() {
     if (!examId) {
       return undefined;
     }
-    const student = await getStudentDeviceAssignmentsByExamId(examId);
+    const student = await getStudentDeviceConnectionStatusByExamId(examId);
     return student;
   }, []);
 
   return {
     loading,
     assigning,
+    connecting,
     examOptions,
     selectedExamId,
     setSelectedExamId,
     tableData,
     randomAssign,
     clearAssign,
+    connectDevices,
     studentCount: allAssignments.length,
     deviceCount: allDevices.length,
     assignedCount: tableData.filter((item) => item.assigned).length,

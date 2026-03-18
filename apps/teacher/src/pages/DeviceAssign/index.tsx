@@ -5,16 +5,25 @@ import { useDeviceAssign } from "@/hooks/useDeviceAssign";
 import { useTableHeight } from "@/hooks/useTableHeight";
 import type { DeviceAssignRow } from "@/types/main";
 
+const statusTagColorMap: Record<DeviceAssignRow["connection_status"], string> = {
+  待分配: "default",
+  未连接: "gold",
+  正常: "green",
+  异常: "red",
+};
+
 export function DeviceAssignPage() {
   const {
     loading,
     assigning,
+    connecting,
     examOptions,
     selectedExamId,
     setSelectedExamId,
     tableData,
     randomAssign,
     clearAssign,
+    connectDevices,
     studentCount,
     deviceCount,
     assignedCount,
@@ -50,15 +59,13 @@ export function DeviceAssignPage() {
       render: (value?: string) => value ?? <Tag>未分配</Tag>,
     },
     {
-      title: "连接状态",
-      key: "assigned",
+      title: "设备连接状态",
+      dataIndex: "connection_status",
+      key: "connection_status",
       width: 120,
-      render: (_, record) =>
-        record.assigned ? (
-          <Tag color="green">已分配</Tag>
-        ) : (
-          <Tag color="default">待分配</Tag>
-        ),
+      render: (value: DeviceAssignRow["connection_status"]) => (
+        <Tag color={statusTagColorMap[value] ?? "default"}>{value}</Tag>
+      ),
     },
   ];
 
@@ -85,6 +92,26 @@ export function DeviceAssignPage() {
 
     await clearAssign();
     message.success("已清空分配");
+  };
+
+  const handleConnectDevices = async () => {
+    if (!selectedExamId) {
+      message.warning("请先选择考试");
+      return;
+    }
+
+    if (assignedCount === 0) {
+      message.warning("当前考试暂无已分配设备");
+      return;
+    }
+
+    const result = await connectDevices();
+    if (!result) {
+      message.warning("连接请求未执行");
+      return;
+    }
+
+    message.success(`连接请求已下发：成功 ${result.successCount} / ${result.total}`);
   };
 
   return (
@@ -118,6 +145,13 @@ export function DeviceAssignPage() {
               </Button>
               <Button loading={assigning} onClick={handleClearAssign}>
                 清空分配
+              </Button>
+              <Button
+                type="primary"
+                loading={connecting}
+                onClick={handleConnectDevices}
+              >
+                连接考生设备
               </Button>
             </div>
           </div>
