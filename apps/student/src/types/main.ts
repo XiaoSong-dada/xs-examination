@@ -4,6 +4,50 @@ export interface Exam {
   status?: string;
 }
 
+export interface ExamSession {
+  id: string;
+  examId: string;
+  studentId: string;
+  studentNo: string;
+  studentName: string;
+  assignedIpAddr: string;
+  assignedDeviceName?: string;
+  examTitle: string;
+  status: string;
+  assignmentStatus: string;
+  startedAt?: number;
+  endsAt?: number;
+  paperVersion?: string;
+  lastSyncedAt?: number;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface ExamSnapshot {
+  sessionId: string;
+  examMeta: string;
+  questionsPayload: string;
+  downloadedAt: number;
+  expiresAt?: number;
+  updatedAt: number;
+}
+
+export interface CurrentExamBundle {
+  session: ExamSession | null;
+  snapshot: ExamSnapshot | null;
+}
+
+export interface RuntimeQuestion {
+  id: string;
+  seq: number;
+  type: string;
+  content: string;
+  options: string[];
+  score: number;
+  explanation?: string;
+  images: string[];
+}
+
 export interface AssignedStudent {
   studentNo: string;
   name: string;
@@ -44,5 +88,10 @@ export interface DeviceStore {
 
 export interface ExamStore {
   currentExam: Exam | null;
+  currentSession: ExamSession | null;
+  currentSnapshot: ExamSnapshot | null;
+  questions: RuntimeQuestion[];
+  loading: boolean;
   setCurrentExam: (exam: Exam | null) => void;
+  refreshCurrentExam: () => Promise<void>;
 }

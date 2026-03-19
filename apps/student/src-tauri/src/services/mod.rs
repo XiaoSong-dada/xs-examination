@@ -3,3 +3,4 @@
 //! 当前为占位模块，后续会实现 `TeacherConfigService` 等。
 
 pub mod teacher_endpoints_service;
+pub mod exam_runtime_service;

@@ -7,7 +7,12 @@ use tokio::net::{TcpListener, TcpStream};
 
 use crate::config::AppConfig;
 use crate::schemas::control_protocol::{
-    ApplyTeacherEndpointsAck, ApplyTeacherEndpointsAckPayload, ApplyTeacherEndpointsRequest,
+    ApplyTeacherEndpointsAck,
+    ApplyTeacherEndpointsAckPayload,
+    ApplyTeacherEndpointsRequest,
+    DistributeExamPaperAck,
+    DistributeExamPaperAckPayload,
+    DistributeExamPaperRequest,
 };
 use crate::schemas::teacher_endpoint_schema::{
     TeacherEndpointAppliedEvent, WsConnectionEvent,
@@ -44,7 +49,43 @@ async fn handle_client(app_handle: tauri::AppHandle, mut stream: TcpStream) -> R
         return Ok(());
     }
 
-    let req: ApplyTeacherEndpointsRequest = serde_json::from_slice(&buf[..size])?;
+    let raw: serde_json::Value = serde_json::from_slice(&buf[..size])?;
+    let req_type = raw
+        .get("type")
+        .and_then(|v| v.as_str())
+        .unwrap_or_default();
+
+    if req_type == "DISTRIBUTE_EXAM_PAPER" {
+        let req: DistributeExamPaperRequest = serde_json::from_value(raw)?;
+
+        let result = crate::services::exam_runtime_service::ExamRuntimeService::upsert_distribution(
+            &app_handle,
+            &req.payload,
+        )
+        .await;
+
+        let (success, message) = match result {
+            Ok(()) => (true, "试卷已落库".to_string()),
+            Err(err) => (false, format!("试卷落库失败: {}", err)),
+        };
+
+        let ack = DistributeExamPaperAck {
+            r#type: "DISTRIBUTE_EXAM_PAPER_ACK".to_string(),
+            request_id: req.request_id,
+            timestamp: now_ms(),
+            payload: DistributeExamPaperAckPayload {
+                success,
+                message,
+                session_id: Some(req.payload.session_id),
+            },
+        };
+
+        let output = serde_json::to_vec(&ack)?;
+        stream.write_all(&output).await?;
+        return Ok(());
+    }
+
+    let req: ApplyTeacherEndpointsRequest = serde_json::from_value(raw)?;
 
     if req.r#type != "APPLY_TEACHER_ENDPOINTS" {
         let ack = ApplyTeacherEndpointsAck {

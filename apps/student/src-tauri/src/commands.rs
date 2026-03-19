@@ -1,8 +1,10 @@
 use tauri::State;
 
 use crate::schemas::teacher_endpoint_schema;
+use crate::schemas::exam_runtime_schema;
 use crate::state::AppState;
 use crate::services::teacher_endpoints_service::TeacherEndpointsService;
+use crate::services::exam_runtime_service::ExamRuntimeService;
 
 #[tauri::command]
 pub async fn test_db_connection(state: State<'_, AppState>) -> Result<String, String> {
@@ -74,4 +76,13 @@ pub async fn get_teacher_runtime_status(
         endpoint,
         connection_status,
     })
+}
+
+#[tauri::command]
+pub async fn get_current_exam_bundle(
+    app_handle: tauri::AppHandle,
+) -> Result<exam_runtime_schema::CurrentExamBundleDto, String> {
+    ExamRuntimeService::get_current_exam_bundle(&app_handle)
+        .await
+        .map_err(|e| e.to_string())
 }

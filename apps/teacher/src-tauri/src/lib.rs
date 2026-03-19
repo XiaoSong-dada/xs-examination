@@ -61,6 +61,8 @@ pub fn run() {
             controllers::student_exam_controller::assign_devices_to_student_exams,
             controllers::student_exam_controller::connect_student_devices_by_exam_id,
             controllers::student_exam_controller::get_student_device_connection_status_by_exam_id,
+            controllers::student_exam_controller::distribute_exam_papers_by_exam_id,
+            controllers::student_exam_controller::start_exam_by_exam_id,
             controllers::question_controller::get_questions,
             controllers::question_controller::bulk_import_questions,
             controllers::network_controller::get_online_students,

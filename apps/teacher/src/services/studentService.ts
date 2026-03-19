@@ -1,7 +1,9 @@
 import type {
+  DistributeExamPapersResult,
   IStudentCreate,
   IStudentEditor,
   PushTeacherEndpointsResult,
+  StartExamResult,
   StudentDeviceConnectionStatusItem,
   StudentDeviceAssignItem,
   StudentDeviceAssignPayloadItem,
@@ -68,6 +70,22 @@ export async function getStudentDeviceConnectionStatusByExamId(
       payload: { exam_id: examId },
     },
   );
+}
+
+export async function distributeExamPapersByExamId(
+  examId: string,
+): Promise<DistributeExamPapersResult> {
+  return invoke<DistributeExamPapersResult>("distribute_exam_papers_by_exam_id", {
+    payload: { exam_id: examId },
+  });
+}
+
+export async function startExamByExamId(
+  examId: string,
+): Promise<StartExamResult> {
+  return invoke<StartExamResult>("start_exam_by_exam_id", {
+    payload: { exam_id: examId },
+  });
 }
 
 export async function getStudentById(id: string): Promise<StudentListItem> {

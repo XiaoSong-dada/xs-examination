@@ -58,6 +58,41 @@ pub struct ConnectStudentDevicesByExamInput {
     pub exam_id: String,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+pub struct DistributeExamPapersByExamInput {
+    pub exam_id: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct StartExamByExamInput {
+    pub exam_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DistributeExamPapersResultItem {
+    pub student_exam_id: String,
+    pub student_id: String,
+    pub device_ip: String,
+    pub success: bool,
+    pub message: String,
+    pub session_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DistributeExamPapersOutput {
+    pub request_id: String,
+    pub total: usize,
+    pub success_count: usize,
+    pub results: Vec<DistributeExamPapersResultItem>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StartExamOutput {
+    pub exam_id: String,
+    pub total_targets: usize,
+    pub sent_count: usize,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct StudentDeviceConnectionStatusDto {
     pub student_exam_id: String,

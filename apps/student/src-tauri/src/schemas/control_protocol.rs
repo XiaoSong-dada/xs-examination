@@ -71,3 +71,64 @@ pub struct ApplyTeacherEndpointsAck {
     pub timestamp: i64,
     pub payload: ApplyTeacherEndpointsAckPayload,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DistributeExamPaperPayload {
+    #[serde(rename = "sessionId")]
+    pub session_id: String,
+    #[serde(rename = "examId")]
+    pub exam_id: String,
+    #[serde(rename = "studentId")]
+    pub student_id: String,
+    #[serde(rename = "studentNo")]
+    pub student_no: String,
+    #[serde(rename = "studentName")]
+    pub student_name: String,
+    #[serde(rename = "assignedIpAddr")]
+    pub assigned_ip_addr: String,
+    #[serde(rename = "examTitle")]
+    pub exam_title: String,
+    pub status: String,
+    #[serde(rename = "assignmentStatus")]
+    pub assignment_status: String,
+    #[serde(rename = "startTime")]
+    pub start_time: Option<i64>,
+    #[serde(rename = "endTime")]
+    pub end_time: Option<i64>,
+    #[serde(rename = "paperVersion")]
+    pub paper_version: Option<String>,
+    #[serde(rename = "examMeta")]
+    pub exam_meta: String,
+    #[serde(rename = "questionsPayload")]
+    pub questions_payload: String,
+    #[serde(rename = "downloadedAt")]
+    pub downloaded_at: i64,
+    #[serde(rename = "expiresAt")]
+    pub expires_at: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DistributeExamPaperRequest {
+    pub r#type: String,
+    #[serde(rename = "requestId")]
+    pub request_id: String,
+    pub timestamp: i64,
+    pub payload: DistributeExamPaperPayload,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DistributeExamPaperAckPayload {
+    pub success: bool,
+    pub message: String,
+    #[serde(rename = "sessionId")]
+    pub session_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DistributeExamPaperAck {
+    pub r#type: String,
+    #[serde(rename = "requestId")]
+    pub request_id: String,
+    pub timestamp: i64,
+    pub payload: DistributeExamPaperAckPayload,
+}
