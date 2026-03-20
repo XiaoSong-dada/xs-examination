@@ -3,13 +3,16 @@ use futures_util::StreamExt;
 use serde::Deserialize;
 use tauri::Manager;
 use tokio::net::TcpListener;
-use tokio_tungstenite::{accept_async, tungstenite::Message};
+use tokio_tungstenite::tungstenite::Message;
 
 use crate::core::setting::SETTINGS;
 use crate::network::protocol::{
-    ExamStartPayload, MessageType, WsMessage, decode_value_message, encode_message,
+    ExamStartPayload, MessageType, WsMessage, build_message, decode_value_message,
+    encode_message,
 };
-use crate::network::transport::ws_transport::{new_text_channel, run_text_writer_loop};
+use crate::network::transport::ws_transport::{
+    accept_ws, new_text_channel, run_text_writer_loop,
+};
 
 #[derive(Debug, Clone, Deserialize)]
 struct AnswerItem {
@@ -46,7 +49,7 @@ pub async fn start_ws_server(app_handle: tauri::AppHandle) -> Result<()> {
         let app_handle = app_handle.clone();
 
         tokio::spawn(async move {
-            let ws_stream = match accept_async(stream).await {
+            let ws_stream = match accept_ws(stream).await {
                 Ok(ws) => ws,
                 Err(e) => {
                     eprintln!("[ws-server] handshake failed from {}: {}", peer_addr, e);
@@ -106,12 +109,7 @@ pub fn send_exam_start_to_student(
     app_handle: &tauri::AppHandle,
     payload: ExamStartPayload,
 ) -> Result<bool> {
-    let envelope = WsMessage {
-        r#type: MessageType::ExamStart,
-        timestamp: payload.timestamp,
-        signature: String::new(),
-        payload,
-    };
+    let envelope = build_message(MessageType::ExamStart, payload.timestamp, payload);
     let text = encode_message(&envelope)?;
     let state = app_handle.state::<crate::state::AppState>();
     Ok(state.send_ws_text_to_student(&envelope.payload.student_id, text))

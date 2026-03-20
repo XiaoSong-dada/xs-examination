@@ -23,6 +23,15 @@ pub struct WsMessage<T> {
     pub payload: T,
 }
 
+pub fn build_message<T>(message_type: MessageType, timestamp: i64, payload: T) -> WsMessage<T> {
+    WsMessage {
+        r#type: message_type,
+        timestamp,
+        signature: String::new(),
+        payload,
+    }
+}
+
 pub fn encode_message<T: Serialize>(message: &WsMessage<T>) -> anyhow::Result<String> {
     Ok(serde_json::to_string(message)?)
 }

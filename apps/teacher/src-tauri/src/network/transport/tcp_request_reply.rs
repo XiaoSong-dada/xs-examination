@@ -12,6 +12,26 @@ pub struct RequestReplyTimeouts {
     pub read: Duration,
 }
 
+impl RequestReplyTimeouts {
+    pub fn apply_teacher_endpoints() -> Self {
+        Self {
+            connect: Duration::from_secs(3),
+            write: Duration::from_secs(3),
+            shutdown_write: None,
+            read: Duration::from_secs(3),
+        }
+    }
+
+    pub fn distribute_exam_paper() -> Self {
+        Self {
+            connect: Duration::from_secs(5),
+            write: Duration::from_secs(5),
+            shutdown_write: Some(Duration::from_secs(2)),
+            read: Duration::from_secs(20),
+        }
+    }
+}
+
 pub async fn send_json_request<TReq, TAck>(
     addr: &str,
     request: &TReq,

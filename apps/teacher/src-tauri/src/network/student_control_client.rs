@@ -1,7 +1,5 @@
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
-use tokio::time::Duration;
-
 use crate::network::transport::tcp_request_reply::{RequestReplyTimeouts, send_json_request};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -131,12 +129,7 @@ pub async fn apply_teacher_endpoints(
     send_json_request(
         &addr,
         request,
-        RequestReplyTimeouts {
-            connect: Duration::from_secs(3),
-            write: Duration::from_secs(3),
-            shutdown_write: None,
-            read: Duration::from_secs(3),
-        },
+        RequestReplyTimeouts::apply_teacher_endpoints(),
         "apply_teacher_endpoints",
     )
     .await
@@ -151,12 +144,7 @@ pub async fn distribute_exam_paper(
     send_json_request(
         &addr,
         request,
-        RequestReplyTimeouts {
-            connect: Duration::from_secs(5),
-            write: Duration::from_secs(5),
-            shutdown_write: Some(Duration::from_secs(2)),
-            read: Duration::from_secs(20),
-        },
+        RequestReplyTimeouts::distribute_exam_paper(),
         "distribute_exam_paper",
     )
     .await

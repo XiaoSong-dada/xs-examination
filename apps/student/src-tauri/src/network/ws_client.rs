@@ -8,8 +8,8 @@ use tokio::time::{sleep, Duration};
 use tokio_tungstenite::tungstenite::Message;
 
 use crate::network::protocol::{
-    ExamStartPayload, HeartbeatPayload, MessageType, WsMessage, decode_value_message,
-    encode_message,
+    ExamStartPayload, HeartbeatPayload, MessageType, WsMessage, build_message,
+    decode_value_message, encode_message,
 };
 use crate::network::transport::ws_transport::{connect_ws, new_text_channel, run_text_writer_loop};
 use crate::schemas::teacher_endpoint_schema::WsConnectionEvent;
@@ -19,15 +19,6 @@ fn now_ms() -> i64 {
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_millis() as i64)
         .unwrap_or_default()
-}
-
-fn unsigned_message<T>(message_type: MessageType, payload: T) -> WsMessage<T> {
-    WsMessage {
-        r#type: message_type,
-        timestamp: now_ms(),
-        signature: String::new(),
-        payload,
-    }
 }
 
 pub async fn connect(
@@ -130,8 +121,9 @@ pub async fn connect(
 
     tokio::spawn(async move {
         loop {
-            let heartbeat = unsigned_message(
+            let heartbeat = build_message(
                 MessageType::Heartbeat,
+                now_ms(),
                 HeartbeatPayload {
                     student_id: student_id.clone(),
                 },
@@ -172,8 +164,8 @@ pub fn build_answer_sync_message(
         ]
     });
 
-    let message = unsigned_message(MessageType::AnswerSync, payload);
-    Ok(serde_json::to_string(&message)?)
+    let message = build_message(MessageType::AnswerSync, now_ms(), payload);
+    encode_message(&message)
 }
 
 async fn handle_server_message(
