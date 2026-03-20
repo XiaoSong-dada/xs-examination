@@ -104,10 +104,15 @@ pub async fn connect_student_devices_by_exam_id(
     payload: student_exam_schema::ConnectStudentDevicesByExamInput,
 ) -> Result<device_schema::PushTeacherEndpointsOutput, String> {
     let pool = &state.db;
+    let exam_id = payload.exam_id;
+
+    let exam = exam_service::get_exam_by_id(pool, exam_id.clone())
+        .await
+        .map_err(|err| err.to_string())?;
 
     let assignments = student_exam_service::list_student_device_assignments_by_exam_id(
         pool,
-        payload.exam_id,
+        exam_id,
     )
     .await
     .map_err(|err| err.to_string())?;
@@ -142,7 +147,14 @@ pub async fn connect_student_devices_by_exam_id(
             .cloned()
             .unwrap_or_else(|| item.student_id.clone());
 
-        targets.push((device_id, ip, item.student_id));
+        targets.push((
+            device_id,
+            ip,
+            item.student_exam_id,
+            item.student_id,
+            item.student_no,
+            item.student_name,
+        ));
     }
 
     if targets.is_empty() {
@@ -166,14 +178,23 @@ pub async fn connect_student_devices_by_exam_id(
     }];
 
     let mut results = Vec::with_capacity(targets.len());
-    for (device_id, device_ip, student_id) in targets {
+    for (device_id, device_ip, student_exam_id, student_id, student_no, student_name) in targets {
         let req = student_control_client::ApplyTeacherEndpointsRequest {
             r#type: "APPLY_TEACHER_ENDPOINTS".to_string(),
             request_id: format!("{}-{}", request_id, device_id),
             timestamp: now_ms(),
             payload: student_control_client::ApplyTeacherEndpointsPayload {
                 config_version: Some(1),
+                session_id: Some(student_exam_id),
+                exam_id: Some(exam.id.clone()),
+                exam_title: Some(exam.title.clone()),
                 student_id,
+                student_no: Some(student_no),
+                student_name: Some(student_name),
+                assigned_ip_addr: Some(device_ip.clone()),
+                assignment_status: Some("assigned".to_string()),
+                start_time: exam.start_time,
+                end_time: exam.end_time,
                 endpoints: endpoints.clone(),
             },
         };

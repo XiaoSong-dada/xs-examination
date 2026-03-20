@@ -107,10 +107,19 @@ async fn handle_client(app_handle: tauri::AppHandle, mut stream: TcpStream) -> R
         return Ok(());
     }
 
-    let result = TeacherEndpointsService::replace_all(&app_handle, &req.payload.endpoints).await;
-
-    let (success, message) = match result {
-        Ok(()) => (true, "配置已落库".to_string()),
+    let (success, message) = match TeacherEndpointsService::replace_all(&app_handle, &req.payload.endpoints).await {
+        Ok(()) => {
+            match crate::services::exam_runtime_service::ExamRuntimeService::upsert_connected_session(
+                &app_handle,
+                &req.payload,
+            )
+            .await
+            {
+                Ok(true) => (true, "配置与考生会话已落库".to_string()),
+                Ok(false) => (true, "配置已落库（未携带会话信息）".to_string()),
+                Err(err) => (false, format!("会话落库失败: {}", err)),
+            }
+        }
         Err(err) => (false, format!("配置落库失败: {}", err)),
     };
 
