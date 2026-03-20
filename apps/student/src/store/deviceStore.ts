@@ -6,8 +6,13 @@ import {
   onWsConnected,
   onWsDisconnected,
 } from "@/services/teacherEndpointService";
+import {
+  getDeviceRuntimeStatus,
+  onDeviceIpUpdated,
+} from "@/services/deviceService";
 
 let hasSubscribedTeacherEvents = false;
+let hasSubscribedDeviceEvents = false;
 
 export const useDeviceStore = create<DeviceStore>((set, get) => ({
   ip: null,
@@ -21,7 +26,31 @@ export const useDeviceStore = create<DeviceStore>((set, get) => ({
   setTeacherMasterEndpoint: (ep) => set({ teacherMasterEndpoint: ep }),
   setTeacherConnectionStatus: (s: TeacherConnectionStatus) => set({ teacherConnectionStatus: s }),
 
+  async initDeviceInfo() {
+    try {
+      const runtime = await getDeviceRuntimeStatus();
+      get().setIp(runtime.ip ?? null);
+    } catch (_err) {
+      get().setIp(null);
+    }
+
+    if (hasSubscribedDeviceEvents) {
+      return;
+    }
+
+    try {
+      hasSubscribedDeviceEvents = true;
+      await onDeviceIpUpdated((payload) => {
+        get().setIp(payload.ip ?? null);
+      });
+    } catch (_err) {
+      hasSubscribedDeviceEvents = false;
+    }
+  },
+
   async initTeacherInfo() {
+    await get().initDeviceInfo();
+
     try {
       const runtime = await getTeacherRuntimeStatus();
       get().setTeacherMasterEndpoint(runtime.endpoint ?? null);

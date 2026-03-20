@@ -55,6 +55,14 @@ export interface AssignedStudent {
   name: string;
 }
 
+export interface DeviceRuntimeStatus {
+  ip: string | null;
+}
+
+export interface DeviceIpUpdatedEvent {
+  ip: string | null;
+}
+
 export type TeacherConnectionStatus =
   | "connected"
   | "disconnected"
@@ -85,6 +93,7 @@ export interface DeviceStore {
   setAssignedStudent: (s: AssignedStudent | null) => void;
   setTeacherMasterEndpoint: (ep: string | null) => void;
   setTeacherConnectionStatus: (s: TeacherConnectionStatus) => void;
+  initDeviceInfo: () => Promise<void>;
   initTeacherInfo: () => Promise<void>;
 }
 
