@@ -223,6 +223,7 @@ graph TD
 | models | `models/` | SeaORM/实体模型 |
 | schemas | `schemas/` | DTO / 输入输出结构 |
 | network | `network/` | WS、mDNS、学生控制通信 |
+| network-transport | `network/transport/` | 对 tokio-tungstenite 与 TCP request-reply 的薄封装层 |
 | state | `state.rs` | 应用共享状态 |
 | db | `db/` | 连接与数据库基础设施 |
 | config | `config.rs` | 配置读取 |
@@ -240,6 +241,7 @@ graph TD
     RModel[models]
     RSchema[schemas]
     RNetwork[network]
+    RTransport[network/transport]
     RState[state]
     RDb[db]
     RConfig[config]
@@ -257,6 +259,7 @@ graph TD
     RSvc --> RSchema
     RSvc --> RNetwork
     RSvc --> RUtils
+    RNetwork --> RTransport
     RRepo --> RModel
     RRepo --> RDb
     RNetwork --> RSchema
@@ -278,7 +281,8 @@ graph TD
 | repos | services | models、db |
 | models | repos、services | 0 |
 | schemas | controllers、services、network | 0 |
-| network | entry、services、controllers | schemas、state、utils、crypto |
+| network | entry、services、controllers | transport、schemas、state、utils、crypto |
+| network-transport | network | tokio-tungstenite、TcpStream/TcpListener 细节、超时模板 |
 | state | entry、controllers、network | db、config |
 | db | repos、state | 0 |
 | config | state | 0 |
@@ -314,10 +318,12 @@ graph TD
 - 若任务是“业务规则 / 聚合流程”，先看 `services/`。
 - 若任务是“实体持久化”，先看 `repos/`、`models/`、`db/`。
 - 若任务是“WebSocket / mDNS / 控制分发”，先看 `network/`。
+- 若任务是“tokio-tungstenite / TcpStream 细节被封装到哪里”，先看 `network/transport/`。
 
 补充定位：
 
 - 若任务是“按考试批量连接已分配设备”，先看 `controllers/student_exam_controller.rs`，再看 `network/student_control_client.rs`。
+- 若任务是“WebSocket 握手、写循环、TCP request-reply 超时模板”，先看 `network/transport/ws_transport.rs` 与 `network/transport/tcp_request_reply.rs`。
 - 若任务是“真实连接状态四态聚合”，先看 `services/student_exam_service.rs` 与 `state.rs`。
 - 若任务是“为什么终端有心跳但 UI 还是未连接”，先核对下发时 `payload.student_id` 是否使用了真实学生 `student_id`，而不是设备 `device_id`。
 - 若任务是“发卷 0/x / 试卷分发失败”，先看 `controllers/student_exam_controller.rs`、`services/student_exam_service.rs`、`network/student_control_client.rs`，重点核对目标 `ip_addr`、控制端口和学生端 ACK。
@@ -421,6 +427,7 @@ graph TD
 | entry | `main.rs` / `lib.rs` | 启动与命令注册 |
 | commands | `commands.rs` | Tauri IPC 命令层 |
 | network | `network/` | 发现、控制服务、WS 客户端 |
+| network-transport | `network/transport/` | WS connect / writer loop、TCP bind/read/write 的薄封装层 |
 | services | `services/` | 业务服务，目前以教师端地址配置服务为主 |
 | schemas | `schemas/` | 控制协议与网络协议结构 |
 | state | `state.rs` | 应用共享状态 |
@@ -437,6 +444,7 @@ graph TD
     SEntry[entry]
     SCmd[commands]
     SNet[network]
+    STransport[network/transport]
     SSvc[services]
     SSchema[schemas]
     SState[state]
@@ -450,6 +458,7 @@ graph TD
     SEntry --> SNet
     SCmd --> SState
     SCmd --> SNet
+    SNet --> STransport
     SNet --> SSchema
     SNet --> SSvc
     SNet --> SUtils
@@ -466,7 +475,8 @@ graph TD
 |------|------|------|
 | entry | student-frontend IPC、进程启动 | commands、state、network |
 | commands | entry、student-frontend invoke | state、network |
-| network | entry、commands | schemas、services、utils、state |
+| network | entry、commands | transport、schemas、services、utils、state |
+| network-transport | network | tokio-tungstenite、TcpListener/TcpStream 细节 |
 | services | network | db、state |
 | schemas | network | 0 |
 | state | entry、commands、network、services | db、config |
@@ -479,6 +489,7 @@ graph TD
 
 - 若任务是“学生端连接教师端 / 网络握手”，先看 `network/ws_client.rs`。
 - 若任务是“学生端接收教师下发地址或控制消息”，先看 `network/control_server.rs`。
+- 若任务是“学生端 WS connect / writer loop 或 TCP bind/read/write 细节”，先看 `network/transport/`。
 - 若任务是“本地缓存与地址持久化”，先看 `services/`、`db/`。
 - 若任务是“IPC 命令与前端桥接”，先看 `commands.rs`。
 - 若任务是“学生端为何收不到试卷”，先看 `network/control_server.rs`、`services/exam_runtime_service.rs`、`commands.rs`，确认 `DISTRIBUTE_EXAM_PAPER` 是否收到、`exam_sessions/exam_snapshots` 是否落库、`get_current_exam_bundle` 是否能读到数据。
@@ -550,6 +561,10 @@ graph TD
 | 心跳到了但 UI 未更新 | teacher-rust `controllers/student_exam_controller.rs` + `network/ws_server.rs`，重点检查 `student_id` 映射 |
 | 分发试卷 / 发卷 0/x / 连接被拒绝 10061 | teacher-frontend `pages/ExamManage` + `hooks/useExamManage.ts` + `services/studentService.ts` + teacher-rust `services/student_exam_service.rs` + `network/student_control_client.rs` |
 | 学生端未收到试卷 / 未显示已发卷 | student-rust `network/control_server.rs` + `services/exam_runtime_service.rs` + student-frontend `store/examStore.ts` + `App.tsx` |
+| tokio-tungstenite 封装 / WS transport / 握手下沉 | teacher-rust `network/transport/ws_transport.rs` + `network/ws_server.rs` + student-rust `network/transport/ws_transport.rs` + `network/ws_client.rs` |
+| TCP 浅封装 / request-reply / ACK 超时模板 | teacher-rust `network/transport/tcp_request_reply.rs` + `network/student_control_client.rs` + student-rust `network/transport/tcp_request_reply.rs` + `network/control_server.rs` |
+| writer loop / 发送通道 / connect_ws / accept_ws | 对应端 `network/transport/ws_transport.rs` |
+| bind_listener / read_json_request / write_json_response / send_json_request | 对应端 `network/transport/tcp_request_reply.rs` |
 
 ---
 
@@ -565,3 +580,4 @@ graph TD
 8. 这条新链路的关键主键是 `student_id`，不是 `device_id`；如果连接下发或心跳聚合时混用两者，会出现“终端有心跳、UI 仍显示未连接”的典型错位问题。
 9. “分发试卷”已确认是一条独立的跨端控制链路：教师端 `ExamManage/useExamManage/studentService` -> 教师端 `student_exam_controller/student_exam_service/student_control_client` -> 学生端 `control_server/exam_runtime_service` -> 学生端前端 `get_current_exam_bundle/examStore/App.tsx`。
 10. 这条发卷链路与“连接考生设备”共用学生端控制端口，因此端口配置必须一致；连接阶段与发卷阶段若使用不同控制端口，会出现“已连接但发卷 0/x”或 `10061` 的典型断点。
+11. 2026-03-20 起，两端 Rust 网络层新增 `network/transport` 子层：教师端 `ws_server/student_control_client` 与学生端 `ws_client/control_server` 不再直接承载全部底层收发细节，而是把 WebSocket 握手/写循环与 TCP request-reply 的 connect、timeout、read/write 边界逐步下沉到 transport 薄封装。
