@@ -1,8 +1,6 @@
-use anyhow::{Context, Result};
+use anyhow::Result;
 use serde::{Deserialize, Serialize};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::TcpStream;
-use tokio::time::{timeout, Duration};
+use crate::network::transport::tcp_request_reply::{RequestReplyTimeouts, send_json_request};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TeacherEndpointInput {
@@ -128,25 +126,13 @@ pub async fn apply_teacher_endpoints(
     request: &ApplyTeacherEndpointsRequest,
 ) -> Result<ApplyTeacherEndpointsAck> {
     let addr = format!("{}:{}", device_ip, control_port);
-
-    let mut stream = timeout(Duration::from_secs(3), TcpStream::connect(&addr))
-        .await
-        .with_context(|| format!("连接学生端超时: {}", addr))??;
-
-    let payload = serde_json::to_vec(request)?;
-    timeout(Duration::from_secs(3), stream.write_all(&payload))
-        .await
-        .with_context(|| format!("发送配置超时: {}", addr))??;
-
-    let mut buf = Vec::with_capacity(2048);
-    timeout(Duration::from_secs(3), stream.read_to_end(&mut buf))
-        .await
-        .with_context(|| format!("读取学生端回执超时: {}", addr))??;
-
-    let ack: ApplyTeacherEndpointsAck = serde_json::from_slice(&buf)
-        .with_context(|| format!("学生端回执解析失败: {}", addr))?;
-
-    Ok(ack)
+    send_json_request(
+        &addr,
+        request,
+        RequestReplyTimeouts::apply_teacher_endpoints(),
+        "apply_teacher_endpoints",
+    )
+    .await
 }
 
 pub async fn distribute_exam_paper(
@@ -155,28 +141,11 @@ pub async fn distribute_exam_paper(
     request: &DistributeExamPaperRequest,
 ) -> Result<DistributeExamPaperAck> {
     let addr = format!("{}:{}", device_ip, control_port);
-
-    let mut stream = timeout(Duration::from_secs(5), TcpStream::connect(&addr))
-        .await
-        .with_context(|| format!("连接学生端超时: {}", addr))??;
-
-    let payload = serde_json::to_vec(request)?;
-    timeout(Duration::from_secs(5), stream.write_all(&payload))
-        .await
-        .with_context(|| format!("发送试卷超时: {}", addr))??;
-
-    // 显式半关闭写端，帮助学生端尽快完成请求边界识别。
-    timeout(Duration::from_secs(2), stream.shutdown())
-        .await
-        .with_context(|| format!("关闭写入通道超时: {}", addr))??;
-
-    let mut buf = Vec::with_capacity(4096);
-    timeout(Duration::from_secs(20), stream.read_to_end(&mut buf))
-        .await
-        .with_context(|| format!("读取学生端发卷回执超时: {}", addr))??;
-
-    let ack: DistributeExamPaperAck = serde_json::from_slice(&buf)
-        .with_context(|| format!("学生端发卷回执解析失败: {}", addr))?;
-
-    Ok(ack)
+    send_json_request(
+        &addr,
+        request,
+        RequestReplyTimeouts::distribute_exam_paper(),
+        "distribute_exam_paper",
+    )
+    .await
 }

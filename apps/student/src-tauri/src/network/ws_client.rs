@@ -1,14 +1,17 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use anyhow::{Context, Result};
-use futures_util::{SinkExt, StreamExt};
+use anyhow::Result;
+use futures_util::StreamExt;
 use serde_json::json;
 use tauri::{Emitter, Manager};
-use tokio::sync::mpsc;
 use tokio::time::{sleep, Duration};
-use tokio_tungstenite::{connect_async, tungstenite::Message};
+use tokio_tungstenite::tungstenite::Message;
 
-use crate::network::protocol::{ExamStartPayload, HeartbeatPayload, MessageType, WsMessage};
+use crate::network::protocol::{
+    ExamStartPayload, HeartbeatPayload, MessageType, WsMessage, build_message,
+    decode_value_message, encode_message,
+};
+use crate::network::transport::ws_transport::{connect_ws, new_text_channel, run_text_writer_loop};
 use crate::schemas::teacher_endpoint_schema::WsConnectionEvent;
 
 fn now_ms() -> i64 {
@@ -16,15 +19,6 @@ fn now_ms() -> i64 {
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_millis() as i64)
         .unwrap_or_default()
-}
-
-fn unsigned_message<T>(message_type: MessageType, payload: T) -> WsMessage<T> {
-    WsMessage {
-        r#type: message_type,
-        timestamp: now_ms(),
-        signature: String::new(),
-        payload,
-    }
 }
 
 pub async fn connect(
@@ -48,14 +42,12 @@ pub async fn connect(
         }
     }
 
-    let (ws_stream, _) = connect_async(&ws_url)
-        .await
-        .with_context(|| format!("连接教师端失败: {}", ws_url))?;
+    let ws_stream = connect_ws(&ws_url).await?;
 
     println!("[ws-client] connected to {}", ws_url);
 
-    let (mut writer, mut reader) = ws_stream.split();
-    let (tx, mut rx) = mpsc::unbounded_channel::<String>();
+    let (writer, mut reader) = ws_stream.split();
+    let (tx, rx) = new_text_channel();
 
     {
         let state = app_handle.state::<crate::state::AppState>();
@@ -76,11 +68,8 @@ pub async fn connect(
     let app_for_writer = app_handle.clone();
     let ws_url_for_writer = ws_url.clone();
     tokio::spawn(async move {
-        while let Some(text) = rx.recv().await {
-            if let Err(err) = writer.send(Message::Text(text.into())).await {
-                eprintln!("[ws-client] send error: {}", err);
-                break;
-            }
+        if let Err(err) = run_text_writer_loop(writer, rx).await {
+            eprintln!("[ws-client] send loop error: {}", err);
         }
 
         let state = app_for_writer.state::<crate::state::AppState>();
@@ -132,14 +121,15 @@ pub async fn connect(
 
     tokio::spawn(async move {
         loop {
-            let heartbeat = unsigned_message(
+            let heartbeat = build_message(
                 MessageType::Heartbeat,
+                now_ms(),
                 HeartbeatPayload {
                     student_id: student_id.clone(),
                 },
             );
 
-            match serde_json::to_string(&heartbeat) {
+            match encode_message(&heartbeat) {
                 Ok(text) => {
                     if heartbeat_tx.send(text).is_err() {
                         break;
@@ -174,8 +164,8 @@ pub fn build_answer_sync_message(
         ]
     });
 
-    let message = unsigned_message(MessageType::AnswerSync, payload);
-    Ok(serde_json::to_string(&message)?)
+    let message = build_message(MessageType::AnswerSync, now_ms(), payload);
+    encode_message(&message)
 }
 
 async fn handle_server_message(
@@ -183,7 +173,7 @@ async fn handle_server_message(
     local_student_id: &str,
     text: &str,
 ) -> Result<()> {
-    let envelope: WsMessage<serde_json::Value> = serde_json::from_str(text)?;
+    let envelope: WsMessage<serde_json::Value> = decode_value_message(text)?;
 
     match envelope.r#type {
         MessageType::ExamStart => {

@@ -14,6 +14,21 @@
 
 UDP 监听只出现在学生端的设备发现链路里，对应 apps/student/src-tauri/src/network/discovery_listener.rs；它不参与本次“下发教师地址”的最短链路。
 
+## 2026-03-20 封装更新结论
+
+这次 network 层封装没有改变这两条 e2e 业务链的起点、终点和成败判定。
+
+变化的是：
+
+1. WebSocket 握手、发送通道和写循环开始下沉到 `network/transport/ws_transport.rs`。
+2. TCP request-reply 的 connect、timeout、半关闭、读取 ACK 以及服务端 bind/read/write 开始下沉到 `network/transport/tcp_request_reply.rs`。
+
+因此应这样理解本次更新：
+
+1. 业务 e2e 链路不变。
+2. 网络层内部调用点发生了收口。
+3. 后续查问题时，除了 `ws_server.rs`、`ws_client.rs`、`student_control_client.rs`、`control_server.rs`，还要同步看各自的 `network/transport/*.rs`。
+
 ## 最短链路结论
 
 ### 链路 A：设备管理页统一下发教师地址
@@ -82,16 +97,18 @@ apps/teacher/src/services/deviceService.ts 中的 pushTeacherEndpointsToDevices 
 2. 通过 device_repo::get_device_by_id 从教师端本地设备表查出每台学生设备的 IP。
 3. 组装 ApplyTeacherEndpointsRequest，请求类型为 APPLY_TEACHER_ENDPOINTS。
 4. 调用 student_control_client::apply_teacher_endpoints(&device.ip, control_port, &req)。
+5. `apply_teacher_endpoints` 进一步调用 `network/transport/tcp_request_reply.rs` 中的 `send_json_request(...)` 执行 TCP request-reply。
 
 因此，链路依赖的是“教师端本地已经知道学生设备 IP”。这些 IP 来自更早的设备发现/录入流程，不是在这里临时广播得到的。
 
 ### 4. 教师端到学生端的真实传输协议
 
-apps/teacher/src-tauri/src/network/student_control_client.rs 中的 apply_teacher_endpoints 明确使用的是 TCP：
+apps/teacher/src-tauri/src/network/student_control_client.rs 中的 apply_teacher_endpoints 明确使用的是 TCP，只是现在底层细节已通过 transport 薄封装收口：
 
-1. 用 TcpStream::connect 连接 student_ip:control_port。
-2. 把请求 JSON 写入连接。
-3. 读取学生端返回的 ACK。
+1. `student_control_client.rs` 负责组装业务请求与选择超时模板。
+2. `network/transport/tcp_request_reply.rs::send_json_request(...)` 用 TcpStream::connect 连接 student_ip:control_port。
+3. transport 薄层把请求 JSON 写入连接，并按配置决定是否半关闭写端。
+4. transport 薄层统一读取学生端返回的 ACK。
 
 默认 control_port 由前端传入，未传时教师端后端默认使用 18889。学生端默认 control_port 也是 18889，定义在 apps/student/src-tauri/src/config.rs。
 
@@ -129,6 +146,7 @@ apps/teacher/src/services/studentService.ts 中的 connectStudentDevicesByExamId
 4. 对每条分配记录构造 `ApplyTeacherEndpointsRequest`。
 5. 关键约束：请求中的 `payload.student_id` 必须取自分配记录里的 `student_id`，不能取设备表里的 `device_id`。
 6. 再调用 `student_control_client::apply_teacher_endpoints(device_ip, 18889, &req)` 逐台下发。
+7. 该函数底层通过 `network/transport/tcp_request_reply.rs::send_json_request(...)` 执行 TCP 单播与 ACK 读取。
 
 ### 4. 为什么 `student_id` 映射是关键
 
@@ -175,7 +193,7 @@ apps/teacher/src/services/studentService.ts 中的 connectStudentDevicesByExamId
 apps/student/src-tauri/src/network/control_server.rs 中：
 
 1. 读取配置里的 control_port。
-2. 绑定 0.0.0.0:control_port。
+2. 通过 `network/transport/tcp_request_reply.rs::bind_listener(...)` 绑定 0.0.0.0:control_port。
 3. accept 新的 TCP 连接。
 4. 每个连接交给 handle_client 处理。
 
@@ -189,9 +207,10 @@ apps/student/src-tauri/src/network/control_server.rs 中：
 
 apps/student/src-tauri/src/network/control_server.rs 的 handle_client 在收到请求后：
 
-1. 反序列化为 ApplyTeacherEndpointsRequest。
-2. 校验 type 是否为 APPLY_TEACHER_ENDPOINTS。
-3. 调用 TeacherEndpointsService::replace_all(&app_handle, &req.payload.endpoints)。
+1. 先通过 `network/transport/tcp_request_reply.rs::read_json_request(...)` 统一读取 JSON 请求体。
+2. 反序列化为 ApplyTeacherEndpointsRequest。
+3. 校验 type 是否为 APPLY_TEACHER_ENDPOINTS。
+4. 调用 TeacherEndpointsService::replace_all(&app_handle, &req.payload.endpoints)。
 
 真正写库逻辑在 apps/student/src-tauri/src/services/teacher_endpoints_service.rs：
 
@@ -219,7 +238,9 @@ handle_client 在 replace_all 成功后，还会做一个附加动作：
 
 1. 从 endpoints 中取出主教师端地址。
 2. 调用 apps/student/src-tauri/src/network/ws_client.rs 的 connect。
-3. 让学生端立刻尝试连接主教师端 WebSocket。
+3. `connect` 底层通过 `network/transport/ws_transport.rs::connect_ws(...)` 建立 WebSocket 连接。
+4. 后续发送通道和写循环由 `network/transport/ws_transport.rs::run_text_writer_loop(...)` 承接。
+5. 让学生端立刻尝试连接主教师端 WebSocket。
 
 这一步是“落库成功后的后续动作”，不是“地址入库”的出口。
 
@@ -247,8 +268,8 @@ handle_client 在 replace_all 成功后，还会做一个附加动作：
 
 ## 一句话总结
 
-教师端“下发教师地址”的最短链路是：前端表单提交 -> Tauri IPC -> 教师端 Rust 根据已知学生 IP 逐台 TCP 直连 -> 学生端 control_server::handle_client 收包 -> TeacherEndpointsService::replace_all 事务提交落库 -> 可选发起 WS 连接 -> 返回 ACK。
+教师端“下发教师地址”的最短链路是：前端表单提交 -> Tauri IPC -> 教师端 Rust 根据已知学生 IP 逐台 TCP 直连 -> 教师端 transport 薄层执行 request-reply -> 学生端 control_server::handle_client 收包 -> 学生端 transport 薄层完成 bind/read/write -> TeacherEndpointsService::replace_all 事务提交落库 -> 可选发起 WS 连接 -> 返回 ACK。
 
 因此，真正出口应写为 replace_all 的事务提交成功，而不是“监听端口的 handle_client 本身”。
 
-而教师端“分配页连接考生设备并刷新真实状态”的最短链路是：分配页按钮 -> Tauri IPC -> 教师端按考试分配记录逐台下发 `APPLY_TEACHER_ENDPOINTS` -> 学生端落库并连接教师端 WebSocket -> 学生端以真实 `student_id` 持续发送心跳 -> 教师端按 `student_id` 更新连接快照 -> 分配页与监考页统一查询四态状态。
+而教师端“分配页连接考生设备并刷新真实状态”的最短链路是：分配页按钮 -> Tauri IPC -> 教师端按考试分配记录逐台下发 `APPLY_TEACHER_ENDPOINTS` -> 教师端 transport 薄层执行 TCP request-reply -> 学生端落库并连接教师端 WebSocket -> 学生端 transport 薄层执行 WS connect / writer loop -> 学生端以真实 `student_id` 持续发送心跳 -> 教师端按 `student_id` 更新连接快照 -> 分配页与监考页统一查询四态状态。

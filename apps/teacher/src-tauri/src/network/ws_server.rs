@@ -1,14 +1,18 @@
 use anyhow::{Context, Result};
-use futures_util::{SinkExt, StreamExt};
+use futures_util::StreamExt;
 use serde::Deserialize;
-use serde_json::Value;
 use tauri::Manager;
 use tokio::net::TcpListener;
-use tokio::sync::mpsc;
-use tokio_tungstenite::{accept_async, tungstenite::Message};
+use tokio_tungstenite::tungstenite::Message;
 
 use crate::core::setting::SETTINGS;
-use crate::network::protocol::{ExamStartPayload, MessageType, WsMessage};
+use crate::network::protocol::{
+    ExamStartPayload, MessageType, WsMessage, build_message, decode_value_message,
+    encode_message,
+};
+use crate::network::transport::ws_transport::{
+    accept_ws, new_text_channel, run_text_writer_loop,
+};
 
 #[derive(Debug, Clone, Deserialize)]
 struct AnswerItem {
@@ -45,7 +49,7 @@ pub async fn start_ws_server(app_handle: tauri::AppHandle) -> Result<()> {
         let app_handle = app_handle.clone();
 
         tokio::spawn(async move {
-            let ws_stream = match accept_async(stream).await {
+            let ws_stream = match accept_ws(stream).await {
                 Ok(ws) => ws,
                 Err(e) => {
                     eprintln!("[ws-server] handshake failed from {}: {}", peer_addr, e);
@@ -54,8 +58,8 @@ pub async fn start_ws_server(app_handle: tauri::AppHandle) -> Result<()> {
             };
 
             println!("[ws-server] connected: {}", peer_addr);
-            let (mut writer, mut reader) = ws_stream.split();
-            let (tx, mut rx) = mpsc::unbounded_channel::<String>();
+            let (writer, mut reader) = ws_stream.split();
+            let (tx, rx) = new_text_channel();
             let peer_id = uuid::Uuid::new_v4().to_string();
 
             {
@@ -66,10 +70,8 @@ pub async fn start_ws_server(app_handle: tauri::AppHandle) -> Result<()> {
             let writer_peer_id = peer_id.clone();
             let writer_app = app_handle.clone();
             let writer_task = tokio::spawn(async move {
-                while let Some(text) = rx.recv().await {
-                    if writer.send(Message::Text(text.into())).await.is_err() {
-                        break;
-                    }
+                if let Err(err) = run_text_writer_loop(writer, rx).await {
+                    eprintln!("[ws-server] send loop error: {}", err);
                 }
 
                 let state = writer_app.state::<crate::state::AppState>();
@@ -107,19 +109,14 @@ pub fn send_exam_start_to_student(
     app_handle: &tauri::AppHandle,
     payload: ExamStartPayload,
 ) -> Result<bool> {
-    let envelope = WsMessage {
-        r#type: MessageType::ExamStart,
-        timestamp: payload.timestamp,
-        signature: String::new(),
-        payload,
-    };
-    let text = serde_json::to_string(&envelope)?;
+    let envelope = build_message(MessageType::ExamStart, payload.timestamp, payload);
+    let text = encode_message(&envelope)?;
     let state = app_handle.state::<crate::state::AppState>();
     Ok(state.send_ws_text_to_student(&envelope.payload.student_id, text))
 }
 
 fn handle_text_message(app_handle: &tauri::AppHandle, peer_id: &str, text: &str) -> Result<()> {
-    let envelope: WsMessage<Value> = serde_json::from_str(text)?;
+    let envelope: WsMessage<serde_json::Value> = decode_value_message(text)?;
     match envelope.r#type {
         MessageType::Heartbeat => {
             let payload: HeartbeatPayload = serde_json::from_value(envelope.payload)?;
