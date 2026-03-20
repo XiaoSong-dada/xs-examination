@@ -21,3 +21,16 @@ pub struct WsMessage<T> {
     pub signature: String,
     pub payload: T,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExamStartPayload {
+    #[serde(rename = "examId")]
+    pub exam_id: String,
+    #[serde(rename = "studentId")]
+    pub student_id: String,
+    #[serde(rename = "startTime")]
+    pub start_time: i64,
+    #[serde(rename = "endTime")]
+    pub end_time: Option<i64>,
+    pub timestamp: i64,
+}

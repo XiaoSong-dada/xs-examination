@@ -5558,6 +5558,7 @@ dependencies = [
  "hex",
  "hmac",
  "mdns-sd",
+ "once_cell",
  "sea-orm",
  "serde",
  "serde_json",

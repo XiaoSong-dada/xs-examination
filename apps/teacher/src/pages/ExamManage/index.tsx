@@ -72,21 +72,43 @@ export function ExamManagePage() {
   ];
 
   const handleDistribute = async () => {
-    const ok = await distributePapers();
-    if (ok) {
-      message.success("试卷分发成功");
+    const result = await distributePapers();
+    if (!result) {
+      message.error("未选择考试，无法分发试卷");
+      return;
+    }
+
+    if (result.total === 0) {
+      message.warning("当前考试没有可分发的已分配学生设备");
+      return;
+    }
+
+    if (result.success_count === result.total) {
+      message.success(`试卷分发成功（${result.success_count}/${result.total}）`);
     } else {
-      message.error("试卷分发失败");
+      const firstFailed = result.results.find((item) => !item.success);
+      const detail = firstFailed?.message?.trim();
+      message.warning(
+        detail
+          ? `试卷分发部分成功（${result.success_count}/${result.total}）：${detail}`
+          : `试卷分发部分成功（${result.success_count}/${result.total}）`,
+      );
     }
   };
 
   const handleStartExam = async () => {
-    const ok = await startExam();
-    if (ok) {
-      message.success("考试已开始");
-    } else {
-      message.error("开始考试失败");
+    const result = await startExam();
+    if (!result) {
+      message.error("未选择考试，无法开始考试");
+      return;
     }
+
+    if (result.sent_count === 0) {
+      message.warning("未向任何学生设备发送开始考试指令");
+      return;
+    }
+
+    message.success(`开始考试指令已发送（${result.sent_count}/${result.total_targets}）`);
   };
 
   return (

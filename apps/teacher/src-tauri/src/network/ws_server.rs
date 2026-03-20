@@ -1,12 +1,14 @@
 use anyhow::{Context, Result};
-use futures_util::StreamExt;
+use futures_util::{SinkExt, StreamExt};
 use serde::Deserialize;
 use serde_json::Value;
 use tauri::Manager;
 use tokio::net::TcpListener;
+use tokio::sync::mpsc;
 use tokio_tungstenite::{accept_async, tungstenite::Message};
 
-use crate::network::protocol::{MessageType, WsMessage};
+use crate::core::setting::SETTINGS;
+use crate::network::protocol::{ExamStartPayload, MessageType, WsMessage};
 
 #[derive(Debug, Clone, Deserialize)]
 struct AnswerItem {
@@ -30,15 +32,8 @@ struct HeartbeatPayload {
     student_id: String,
 }
 
-fn ws_port() -> u16 {
-    std::env::var("WS_SERVER_PORT")
-        .ok()
-        .and_then(|v| v.parse::<u16>().ok())
-        .unwrap_or(18765)
-}
-
 pub async fn start_ws_server(app_handle: tauri::AppHandle) -> Result<()> {
-    let bind_addr = format!("0.0.0.0:{}", ws_port());
+    let bind_addr = format!("0.0.0.0:{}", SETTINGS.ws_server_port);
     let listener = TcpListener::bind(&bind_addr)
         .await
         .with_context(|| format!("WebSocket 服务监听失败: {}", bind_addr))?;
@@ -59,9 +54,29 @@ pub async fn start_ws_server(app_handle: tauri::AppHandle) -> Result<()> {
             };
 
             println!("[ws-server] connected: {}", peer_addr);
-            let mut ws_stream = ws_stream;
+            let (mut writer, mut reader) = ws_stream.split();
+            let (tx, mut rx) = mpsc::unbounded_channel::<String>();
+            let peer_id = uuid::Uuid::new_v4().to_string();
 
-            while let Some(next_message) = ws_stream.next().await {
+            {
+                let state = app_handle.state::<crate::state::AppState>();
+                state.register_ws_peer(peer_id.clone(), tx);
+            }
+
+            let writer_peer_id = peer_id.clone();
+            let writer_app = app_handle.clone();
+            let writer_task = tokio::spawn(async move {
+                while let Some(text) = rx.recv().await {
+                    if writer.send(Message::Text(text.into())).await.is_err() {
+                        break;
+                    }
+                }
+
+                let state = writer_app.state::<crate::state::AppState>();
+                state.remove_ws_peer(&writer_peer_id);
+            });
+
+            while let Some(next_message) = reader.next().await {
                 let message = match next_message {
                     Ok(msg) => msg,
                     Err(e) => {
@@ -71,10 +86,16 @@ pub async fn start_ws_server(app_handle: tauri::AppHandle) -> Result<()> {
                 };
 
                 if let Message::Text(text) = message {
-                    if let Err(e) = handle_text_message(&app_handle, &text) {
+                    if let Err(e) = handle_text_message(&app_handle, &peer_id, &text) {
                         eprintln!("[ws-server] invalid message from {}: {}", peer_addr, e);
                     }
                 }
+            }
+
+            writer_task.abort();
+            {
+                let state = app_handle.state::<crate::state::AppState>();
+                state.remove_ws_peer(&peer_id);
             }
 
             println!("[ws-server] disconnected: {}", peer_addr);
@@ -82,13 +103,29 @@ pub async fn start_ws_server(app_handle: tauri::AppHandle) -> Result<()> {
     }
 }
 
-fn handle_text_message(app_handle: &tauri::AppHandle, text: &str) -> Result<()> {
+pub fn send_exam_start_to_student(
+    app_handle: &tauri::AppHandle,
+    payload: ExamStartPayload,
+) -> Result<bool> {
+    let envelope = WsMessage {
+        r#type: MessageType::ExamStart,
+        timestamp: payload.timestamp,
+        signature: String::new(),
+        payload,
+    };
+    let text = serde_json::to_string(&envelope)?;
+    let state = app_handle.state::<crate::state::AppState>();
+    Ok(state.send_ws_text_to_student(&envelope.payload.student_id, text))
+}
+
+fn handle_text_message(app_handle: &tauri::AppHandle, peer_id: &str, text: &str) -> Result<()> {
     let envelope: WsMessage<Value> = serde_json::from_str(text)?;
     match envelope.r#type {
         MessageType::Heartbeat => {
             let payload: HeartbeatPayload = serde_json::from_value(envelope.payload)?;
             let state = app_handle.state::<crate::state::AppState>();
             state.touch_connection(&payload.student_id, envelope.timestamp);
+            state.bind_student_peer(&payload.student_id, peer_id);
             println!(
                 "[ws-server] heartbeat student_id={} ts={}",
                 payload.student_id, envelope.timestamp
@@ -99,6 +136,7 @@ fn handle_text_message(app_handle: &tauri::AppHandle, text: &str) -> Result<()> 
             let answer_count = payload.answers.len();
             let state = app_handle.state::<crate::state::AppState>();
             state.touch_connection(&payload.student_id, envelope.timestamp);
+            state.bind_student_peer(&payload.student_id, peer_id);
 
             if let Some(first) = payload.answers.first() {
                 println!(

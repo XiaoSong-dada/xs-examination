@@ -8,7 +8,7 @@ use tokio::sync::mpsc;
 use tokio::time::{sleep, Duration};
 use tokio_tungstenite::{connect_async, tungstenite::Message};
 
-use crate::network::protocol::{HeartbeatPayload, MessageType, WsMessage};
+use crate::network::protocol::{ExamStartPayload, HeartbeatPayload, MessageType, WsMessage};
 use crate::schemas::teacher_endpoint_schema::WsConnectionEvent;
 
 fn now_ms() -> i64 {
@@ -98,11 +98,21 @@ pub async fn connect(
         );
     });
 
+    let app_for_reader = app_handle.clone();
+    let student_id_for_reader = student_id.clone();
     tokio::spawn(async move {
         while let Some(next_message) = reader.next().await {
             match next_message {
                 Ok(Message::Text(text)) => {
-                    println!("[ws-client] recv: {}", text);
+                    if let Err(err) = handle_server_message(
+                        app_for_reader.clone(),
+                        &student_id_for_reader,
+                        &text,
+                    )
+                    .await
+                    {
+                        eprintln!("[ws-client] handle message failed: {}", err);
+                    }
                 }
                 Ok(_) => {}
                 Err(err) => {
@@ -166,4 +176,46 @@ pub fn build_answer_sync_message(
 
     let message = unsigned_message(MessageType::AnswerSync, payload);
     Ok(serde_json::to_string(&message)?)
+}
+
+async fn handle_server_message(
+    app_handle: tauri::AppHandle,
+    local_student_id: &str,
+    text: &str,
+) -> Result<()> {
+    let envelope: WsMessage<serde_json::Value> = serde_json::from_str(text)?;
+
+    match envelope.r#type {
+        MessageType::ExamStart => {
+            let payload: ExamStartPayload = serde_json::from_value(envelope.payload)?;
+            if payload.student_id != local_student_id {
+                return Ok(());
+            }
+
+            let updated = crate::services::exam_runtime_service::ExamRuntimeService::mark_exam_started(
+                &app_handle,
+                &payload.exam_id,
+                &payload.student_id,
+                payload.start_time,
+                payload.end_time,
+            )
+            .await?;
+
+            if updated {
+                let _ = app_handle.emit(
+                    "exam_status_changed",
+                    json!({
+                        "examId": payload.exam_id,
+                        "studentId": payload.student_id,
+                        "status": "active"
+                    }),
+                );
+            }
+        }
+        _ => {
+            println!("[ws-client] recv: {}", text);
+        }
+    }
+
+    Ok(())
 }

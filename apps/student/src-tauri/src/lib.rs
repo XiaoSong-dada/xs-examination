@@ -41,6 +41,7 @@ pub fn run() {
             commands::send_answer_sync,
             commands::get_ws_status,
             commands::get_teacher_runtime_status,
+            commands::get_current_exam_bundle,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

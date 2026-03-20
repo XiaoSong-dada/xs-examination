@@ -163,6 +163,7 @@ graph TD
 
 - `pages/DeviceAssign` 现在除了随机分配和清空分配，还会通过 `hooks/useDeviceAssign.ts` 调用新的连接与状态查询命令，把“已分配关系”和“真实连接状态”合并成表格行。
 - `pages/Monitor` 现在不再只按 `ip_addr` 推导在线状态，而是通过 `hooks/useMonitor.ts` 复用同一套状态查询链路，确保与分配页口径一致。
+- `pages/ExamManage` 现在不仅负责考试状态展示，还通过 `hooks/useExamManage.ts` 调用 `services/studentService.ts` 触发“分发试卷”与“开始考试”两条链路；其中“分发试卷”已形成教师端前端 -> 教师端 Rust -> 学生端控制服务 -> 学生端本地落库的完整闭环。
 - 这意味着教师端前端里与“实时连接状态”最相关的页面已从单一的 `Monitor` 扩展为 `DeviceAssign + Monitor` 共享一套 `services -> teacher-rust` 调用路径。
 
 ### 4.4 扇入 / 扇出
@@ -190,6 +191,7 @@ graph TD
 
 - 若任务是“分配页连接考生设备”，优先看 `pages/DeviceAssign`、`hooks/useDeviceAssign.ts`、`services/studentService.ts`。
 - 若任务是“分配页/监考页连接状态不一致”，优先看 `hooks/useDeviceAssign.ts`、`hooks/useMonitor.ts`、`types/main.ts`。
+- 若任务是“考试管理页分发试卷 / 开始考试”，优先看 `pages/ExamManage`、`hooks/useExamManage.ts`、`services/studentService.ts`。
 
 ### 4.6 说明
 
@@ -299,6 +301,11 @@ graph TD
 - `connect_student_devices_by_exam_id`
 - `get_student_device_connection_status_by_exam_id`
 
+同时，这个控制器组现在也承载考试管理页两条关键命令：
+
+- `distribute_exam_papers_by_exam_id`
+- `start_exam_by_exam_id`
+
 这意味着当前教师端 Rust 的主要扇入集中在 `controllers/`，主要扇出集中在 `services/`、`network/`、`state/`。
 
 ### 5.6 快速定位
@@ -313,6 +320,7 @@ graph TD
 - 若任务是“按考试批量连接已分配设备”，先看 `controllers/student_exam_controller.rs`，再看 `network/student_control_client.rs`。
 - 若任务是“真实连接状态四态聚合”，先看 `services/student_exam_service.rs` 与 `state.rs`。
 - 若任务是“为什么终端有心跳但 UI 还是未连接”，先核对下发时 `payload.student_id` 是否使用了真实学生 `student_id`，而不是设备 `device_id`。
+- 若任务是“发卷 0/x / 试卷分发失败”，先看 `controllers/student_exam_controller.rs`、`services/student_exam_service.rs`、`network/student_control_client.rs`，重点核对目标 `ip_addr`、控制端口和学生端 ACK。
 
 ---
 
@@ -378,6 +386,7 @@ graph TD
 - 若任务是“考试界面展示”，优先看 `pages/Exam/` 与 `components/ExamContent/`。
 - 若任务是“头部信息与设备状态”，优先看 `layout/AppHeader.tsx` 与 `store/`。
 - 若任务是“前端状态变更”，优先看 `store/examStore.ts`、`store/deviceStore.ts`。
+- 若任务是“为什么学生端显示未收到试卷 / 已收到试卷”，优先看 `App.tsx`、`store/examStore.ts`、`services/examRuntimeService.ts`。
 
 ### 6.6 说明
 
@@ -403,6 +412,7 @@ graph TD
 - `connect_teacher_ws`
 - `send_answer_sync`
 - `get_ws_status`
+- `get_current_exam_bundle`
 
 ### 7.2 模块分组
 
@@ -471,6 +481,7 @@ graph TD
 - 若任务是“学生端接收教师下发地址或控制消息”，先看 `network/control_server.rs`。
 - 若任务是“本地缓存与地址持久化”，先看 `services/`、`db/`。
 - 若任务是“IPC 命令与前端桥接”，先看 `commands.rs`。
+- 若任务是“学生端为何收不到试卷”，先看 `network/control_server.rs`、`services/exam_runtime_service.rs`、`commands.rs`，确认 `DISTRIBUTE_EXAM_PAPER` 是否收到、`exam_sessions/exam_snapshots` 是否落库、`get_current_exam_bundle` 是否能读到数据。
 
 ---
 
@@ -537,6 +548,8 @@ graph TD
 | 连接考生设备 / 分配页一键连接 | teacher-frontend `pages/DeviceAssign` + `hooks/useDeviceAssign.ts` + teacher-rust `controllers/student_exam_controller.rs` |
 | 连接状态四态 / 心跳超时 | teacher-rust `services/student_exam_service.rs` + `state.rs` + teacher-frontend `hooks/useDeviceAssign.ts` / `hooks/useMonitor.ts` |
 | 心跳到了但 UI 未更新 | teacher-rust `controllers/student_exam_controller.rs` + `network/ws_server.rs`，重点检查 `student_id` 映射 |
+| 分发试卷 / 发卷 0/x / 连接被拒绝 10061 | teacher-frontend `pages/ExamManage` + `hooks/useExamManage.ts` + `services/studentService.ts` + teacher-rust `services/student_exam_service.rs` + `network/student_control_client.rs` |
+| 学生端未收到试卷 / 未显示已发卷 | student-rust `network/control_server.rs` + `services/exam_runtime_service.rs` + student-frontend `store/examStore.ts` + `App.tsx` |
 
 ---
 
@@ -550,3 +563,5 @@ graph TD
 6. `.copilot` 目录已经成为任务启动入口的一部分，开始任务前应同时阅读规范、记忆库和本图谱。
 7. 教师端“实时连接状态”不再是 `Monitor` 页独有逻辑，而是 `DeviceAssign + Monitor` 共用的跨层链路：前端 hooks -> `studentService.ts` -> `student_exam_controller` -> `student_exam_service` -> `state.connections`。
 8. 这条新链路的关键主键是 `student_id`，不是 `device_id`；如果连接下发或心跳聚合时混用两者，会出现“终端有心跳、UI 仍显示未连接”的典型错位问题。
+9. “分发试卷”已确认是一条独立的跨端控制链路：教师端 `ExamManage/useExamManage/studentService` -> 教师端 `student_exam_controller/student_exam_service/student_control_client` -> 学生端 `control_server/exam_runtime_service` -> 学生端前端 `get_current_exam_bundle/examStore/App.tsx`。
+10. 这条发卷链路与“连接考生设备”共用学生端控制端口，因此端口配置必须一致；连接阶段与发卷阶段若使用不同控制端口，会出现“已连接但发卷 0/x”或 `10061` 的典型断点。

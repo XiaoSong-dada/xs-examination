@@ -2,6 +2,10 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { useAllExamList } from "@/hooks/useExam";
 import { getExamById, updateExam } from "@/services/examService";
+import {
+  distributeExamPapersByExamId,
+  startExamByExamId,
+} from "@/services/studentService";
 import type { StudentDeviceAssignItem } from "@/types/main";
 import { useDeviceAssign } from "./useDeviceAssign";
 
@@ -126,22 +130,36 @@ export function useExamManage() {
   }, [currentExamEndTime, currentExamStatus, selectedExamId, updateExamStatus]);
 
   const distributePapers = useCallback(async () => {
+    if (!selectedExamId) {
+      return null;
+    }
+
     setDistributing(true);
     try {
-      return await updateExamStatus("published");
+      const result = await distributeExamPapersByExamId(selectedExamId);
+      await refreshExamList();
+      await loadExamStatus(selectedExamId);
+      return result;
     } finally {
       setDistributing(false);
     }
-  }, [updateExamStatus]);
+  }, [loadExamStatus, refreshExamList, selectedExamId]);
 
   const startExam = useCallback(async () => {
+    if (!selectedExamId) {
+      return null;
+    }
+
     setStarting(true);
     try {
-      return await updateExamStatus("active");
+      const result = await startExamByExamId(selectedExamId);
+      await refreshExamList();
+      await loadExamStatus(selectedExamId);
+      return result;
     } finally {
       setStarting(false);
     }
-  }, [updateExamStatus]);
+  }, [loadExamStatus, refreshExamList, selectedExamId]);
 
   const examOptions = useMemo(
     () => exams.map((exam) => ({ label: exam.title, value: exam.id })),

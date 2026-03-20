@@ -71,6 +71,12 @@
 | 结构体 / 枚举 | `PascalCase` | `ExamStatus`, `WsMessage` |
 
 > **新增约定**：所有用于前后端交互或控制层的纯数据结构（DTO、输入/输出 payload）应放在 `src-tauri/src/schemas/` 文件夹内，使用同名 `*_schema.rs` 文件管理。例如 `question_schema.rs` 存放与题目相关的 DTO。该目录仅包含结构体声明，不包含业务逻辑。
+>
+> **Rust 补充约定**：新增功能前必须优先检查 `src-tauri/src/utils/` 下是否已存在可复用函数；若逻辑具有跨模块复用价值，应优先沉淀到 `utils/`，避免在 controller、service、network、repo 中重复实现。
+>
+> **Rust 结构体放置约定**：除 SeaORM 实体模型、数据库实体映射及框架强约束类型外，业务层、控制层、通信层使用的结构体声明统一放在 `src-tauri/src/schemas/` 中管理，禁止将普通 DTO、输入输出参数或中间载荷分散声明在其他层级文件内。
+>
+> **环境变量约定**：与环境变量相关的默认值、读取入口和全局配置优先集中在 `src-tauri/src/core/setting.rs` 管理；开发前若需查找环境变量定义或读取方式，应先查看该文件，再决定是否补充 `utils/` 中的辅助函数。
 
 ### 共享类型包
 

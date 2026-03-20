@@ -1,8 +1,10 @@
 use tauri::State;
 
+use crate::core::setting::SETTINGS;
 use crate::schemas::device_schema;
 use crate::network::student_control_client;
 use crate::schemas::student_exam_schema;
+use crate::services::exam_service;
 use crate::services::device_service;
 use crate::services::student_exam_service;
 use crate::state::AppState;
@@ -183,7 +185,7 @@ pub async fn connect_student_devices_by_exam_id(
             },
         };
 
-        match student_control_client::apply_teacher_endpoints(&device_ip, 18889, &req).await {
+        match student_control_client::apply_teacher_endpoints(&device_ip, SETTINGS.std_controller_port, &req).await {
             Ok(ack) => results.push(device_schema::PushTeacherEndpointsResultItem {
                 device_id,
                 device_ip,
@@ -228,4 +230,47 @@ pub async fn get_student_device_connection_status_by_exam_id(
     )
     .await
     .map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+pub async fn distribute_exam_papers_by_exam_id(
+    state: State<'_, AppState>,
+    payload: student_exam_schema::DistributeExamPapersByExamInput,
+) -> Result<student_exam_schema::DistributeExamPapersOutput, String> {
+    let pool = &state.db;
+    let exam_id = payload.exam_id;
+
+    let result = student_exam_service::distribute_exam_papers_by_exam_id(pool, exam_id.clone())
+        .await
+        .map_err(|err| err.to_string())?;
+
+    if result.total > 0 && result.success_count == result.total {
+        exam_service::update_exam_status(pool, exam_id, "published".to_string())
+            .await
+            .map_err(|err| err.to_string())?;
+    }
+
+    Ok(result)
+}
+
+#[tauri::command]
+pub async fn start_exam_by_exam_id(
+    app_handle: tauri::AppHandle,
+    state: State<'_, AppState>,
+    payload: student_exam_schema::StartExamByExamInput,
+) -> Result<student_exam_schema::StartExamOutput, String> {
+    let pool = &state.db;
+    let exam_id = payload.exam_id;
+
+    let result = student_exam_service::start_exam_by_exam_id(&app_handle, pool, exam_id.clone())
+        .await
+        .map_err(|err| err.to_string())?;
+
+    if result.sent_count > 0 {
+        exam_service::update_exam_status(pool, exam_id, "active".to_string())
+            .await
+            .map_err(|err| err.to_string())?;
+    }
+
+    Ok(result)
 }

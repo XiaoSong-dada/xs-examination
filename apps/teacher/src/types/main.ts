@@ -107,6 +107,28 @@ export interface StudentDeviceConnectionStatusItem {
   has_heartbeat_seen: boolean;
 }
 
+export interface DistributeExamPapersResultItem {
+  student_exam_id: string;
+  student_id: string;
+  device_ip: string;
+  success: boolean;
+  message: string;
+  session_id?: string;
+}
+
+export interface DistributeExamPapersResult {
+  request_id: string;
+  total: number;
+  success_count: number;
+  results: DistributeExamPapersResultItem[];
+}
+
+export interface StartExamResult {
+  exam_id: string;
+  total_targets: number;
+  sent_count: number;
+}
+
 export interface UseStudentListResult {
   loading: boolean;
   inputKeyword: string;
