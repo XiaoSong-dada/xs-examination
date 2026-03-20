@@ -5,15 +5,11 @@ import { useRef } from "react";
 import { useExamManage, type ExamManageTableItem } from "@/hooks/useExamManage";
 import { useTableHeight } from "@/hooks/useTableHeight";
 
-const linkStatusColorMap: Record<string, string> = {
-  已连接: "green",
+const deviceStatusColorMap: Record<string, string> = {
+  待分配: "default",
   未连接: "default",
-};
-
-const examStudentStatusColorMap: Record<string, string> = {
-  待考: "default",
-  作答中: "processing",
-  已交卷: "blue",
+  正常: "green",
+  异常: "red",
 };
 
 /**
@@ -52,21 +48,12 @@ export function ExamManagePage() {
       width: 220,
     },
     {
-      title: "链接状态",
-      dataIndex: "linkStatus",
-      key: "linkStatus",
+      title: "设备状态",
+      dataIndex: "deviceStatus",
+      key: "deviceStatus",
       width: 180,
       render: (value: string) => (
-        <Tag color={linkStatusColorMap[value] ?? "default"}>{value}</Tag>
-      ),
-    },
-    {
-      title: "状态",
-      dataIndex: "status",
-      key: "status",
-      width: 160,
-      render: (value: string) => (
-        <Tag color={examStudentStatusColorMap[value] ?? "default"}>{value}</Tag>
+        <Tag color={deviceStatusColorMap[value] ?? "default"}>{value}</Tag>
       ),
     },
   ];
