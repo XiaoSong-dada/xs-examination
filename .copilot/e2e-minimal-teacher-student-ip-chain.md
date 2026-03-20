@@ -142,7 +142,7 @@ apps/teacher/src/services/studentService.ts 中的 connectStudentDevicesByExamId
 
 1. 按 `exam_id` 读取当前考试下的 `StudentDeviceAssignDto` 列表。
 2. 仅保留 `ip_addr` 非空的记录。
-3. 使用教师端本机 IP 和 `WS_SERVER_PORT` 组装主教师端地址，例如 `ws://teacher-ip:18765`。
+3. 使用教师端本机 IP 和 `WS_SERVER_PORT` 组装主教师端地址，例如 `ws://teacher-ip:18888`。
 4. 对每条分配记录构造 `ApplyTeacherEndpointsRequest`。
 5. 关键约束：请求中的 `payload.student_id` 必须取自分配记录里的 `student_id`，不能取设备表里的 `device_id`。
 6. 再调用 `student_control_client::apply_teacher_endpoints(device_ip, 18889, &req)` 逐台下发。

@@ -98,13 +98,6 @@ fn resolve_local_ipv4() -> Result<String, String> {
     }
 }
 
-fn ws_server_port() -> u16 {
-    std::env::var("WS_SERVER_PORT")
-        .ok()
-        .and_then(|v| v.parse::<u16>().ok())
-        .unwrap_or(18765)
-}
-
 #[tauri::command]
 pub async fn connect_student_devices_by_exam_id(
     state: State<'_, AppState>,
@@ -162,7 +155,7 @@ pub async fn connect_student_devices_by_exam_id(
     }
 
     let local_ip = resolve_local_ipv4()?;
-    let master_endpoint = format!("ws://{}:{}", local_ip, ws_server_port());
+    let master_endpoint = format!("ws://{}:{}", local_ip, SETTINGS.ws_server_port);
     let request_id = uuid::Uuid::new_v4().to_string();
     let endpoints = vec![student_control_client::TeacherEndpointInput {
         id: uuid::Uuid::new_v4().to_string(),
