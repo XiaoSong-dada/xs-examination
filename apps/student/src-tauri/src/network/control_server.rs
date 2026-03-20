@@ -1,11 +1,13 @@
 use crate::utils::datetime::now_ms;
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result};
 use tauri::Emitter;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::{TcpListener, TcpStream};
+use tokio::net::TcpStream;
 
 use crate::config::AppConfig;
+use crate::network::transport::tcp_request_reply::{
+    bind_listener, read_json_request, write_json_response,
+};
 use crate::schemas::control_protocol::{
     ApplyTeacherEndpointsAck,
     ApplyTeacherEndpointsAckPayload,
@@ -24,7 +26,7 @@ use crate::services::teacher_endpoints_service::TeacherEndpointsService;
 pub async fn start(app_handle: tauri::AppHandle) -> Result<()> {
     let config = AppConfig::load()?;
     let bind_addr = format!("0.0.0.0:{}", config.control_port);
-    let listener = TcpListener::bind(&bind_addr)
+    let listener = bind_listener(&bind_addr)
         .await
         .with_context(|| format!("学生端控制服务启动失败: {}", bind_addr))?;
 
@@ -42,44 +44,9 @@ pub async fn start(app_handle: tauri::AppHandle) -> Result<()> {
     }
 }
 
-async fn read_json_request(stream: &mut TcpStream) -> Result<serde_json::Value> {
-    // 发卷报文包含完整题目集合，可能超过单次 read 缓冲区，需循环读取直到 JSON 完整。
-    const MAX_REQUEST_SIZE: usize = 10 * 1024 * 1024;
-    let mut data = Vec::with_capacity(16 * 1024);
-    let mut chunk = [0_u8; 4096];
-
-    loop {
-        let size = stream.read(&mut chunk).await?;
-        if size == 0 {
-            break;
-        }
-
-        data.extend_from_slice(&chunk[..size]);
-        if data.len() > MAX_REQUEST_SIZE {
-            eprintln!(
-                "[control-server] request too large: {} bytes (max={})",
-                data.len(),
-                MAX_REQUEST_SIZE
-            );
-            bail!("控制消息过大: {} bytes", data.len());
-        }
-
-        match serde_json::from_slice::<serde_json::Value>(&data) {
-            Ok(value) => return Ok(value),
-            Err(err) if err.is_eof() => continue,
-            Err(err) => return Err(err.into()),
-        }
-    }
-
-    if data.is_empty() {
-        bail!("空请求体");
-    }
-
-    Ok(serde_json::from_slice::<serde_json::Value>(&data)?)
-}
-
 async fn handle_client(app_handle: tauri::AppHandle, mut stream: TcpStream) -> Result<()> {
-    let raw = read_json_request(&mut stream).await?;
+    // 发卷报文包含完整题目集合，沿用浅封装中的大小限制。
+    let raw = read_json_request(&mut stream, 10 * 1024 * 1024).await?;
     let req_type = raw
         .get("type")
         .and_then(|v| v.as_str())
@@ -119,8 +86,7 @@ async fn handle_client(app_handle: tauri::AppHandle, mut stream: TcpStream) -> R
             },
         };
 
-        let output = serde_json::to_vec(&ack)?;
-        stream.write_all(&output).await?;
+        write_json_response(&mut stream, &ack).await?;
         return Ok(());
     }
 
@@ -137,8 +103,7 @@ async fn handle_client(app_handle: tauri::AppHandle, mut stream: TcpStream) -> R
                 connected_master: None,
             },
         };
-        let output = serde_json::to_vec(&ack)?;
-        stream.write_all(&output).await?;
+        write_json_response(&mut stream, &ack).await?;
         return Ok(());
     }
 
@@ -198,7 +163,6 @@ async fn handle_client(app_handle: tauri::AppHandle, mut stream: TcpStream) -> R
         },
     };
 
-    let output = serde_json::to_vec(&ack)?;
-    stream.write_all(&output).await?;
+    write_json_response(&mut stream, &ack).await?;
     Ok(())
 }
