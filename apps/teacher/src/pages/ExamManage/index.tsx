@@ -86,7 +86,13 @@ export function ExamManagePage() {
     if (result.success_count === result.total) {
       message.success(`试卷分发成功（${result.success_count}/${result.total}）`);
     } else {
-      message.warning(`试卷分发部分成功（${result.success_count}/${result.total}）`);
+      const firstFailed = result.results.find((item) => !item.success);
+      const detail = firstFailed?.message?.trim();
+      message.warning(
+        detail
+          ? `试卷分发部分成功（${result.success_count}/${result.total}）：${detail}`
+          : `试卷分发部分成功（${result.success_count}/${result.total}）`,
+      );
     }
   };
 

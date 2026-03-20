@@ -2,9 +2,9 @@ use anyhow::Result;
 use sea_orm::DatabaseConnection;
 use serde_json::json;
 use std::collections::{HashMap, HashSet};
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::models::student::Model as StudentModel;
+use crate::core::setting::SETTINGS;
 use crate::network::protocol::ExamStartPayload;
 use crate::network::student_control_client;
 use crate::schemas::student_exam_schema;
@@ -175,7 +175,8 @@ pub async fn distribute_exam_papers_by_exam_id(
             },
         };
 
-        match student_control_client::distribute_exam_paper(&device_ip, 18889, &req).await {
+        let control_port = SETTINGS.std_controller_port;
+        match student_control_client::distribute_exam_paper(&device_ip, control_port, &req).await {
             Ok(ack) => results.push(student_exam_schema::DistributeExamPapersResultItem {
                 student_exam_id: item.student_exam_id,
                 student_id: item.student_id,

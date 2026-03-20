@@ -1,6 +1,6 @@
 use crate::utils::datetime::now_ms;
 
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 use tauri::Emitter;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
@@ -42,14 +42,44 @@ pub async fn start(app_handle: tauri::AppHandle) -> Result<()> {
     }
 }
 
-async fn handle_client(app_handle: tauri::AppHandle, mut stream: TcpStream) -> Result<()> {
-    let mut buf = vec![0_u8; 16 * 1024];
-    let size = stream.read(&mut buf).await?;
-    if size == 0 {
-        return Ok(());
+async fn read_json_request(stream: &mut TcpStream) -> Result<serde_json::Value> {
+    // 发卷报文包含完整题目集合，可能超过单次 read 缓冲区，需循环读取直到 JSON 完整。
+    const MAX_REQUEST_SIZE: usize = 10 * 1024 * 1024;
+    let mut data = Vec::with_capacity(16 * 1024);
+    let mut chunk = [0_u8; 4096];
+
+    loop {
+        let size = stream.read(&mut chunk).await?;
+        if size == 0 {
+            break;
+        }
+
+        data.extend_from_slice(&chunk[..size]);
+        if data.len() > MAX_REQUEST_SIZE {
+            eprintln!(
+                "[control-server] request too large: {} bytes (max={})",
+                data.len(),
+                MAX_REQUEST_SIZE
+            );
+            bail!("控制消息过大: {} bytes", data.len());
+        }
+
+        match serde_json::from_slice::<serde_json::Value>(&data) {
+            Ok(value) => return Ok(value),
+            Err(err) if err.is_eof() => continue,
+            Err(err) => return Err(err.into()),
+        }
     }
 
-    let raw: serde_json::Value = serde_json::from_slice(&buf[..size])?;
+    if data.is_empty() {
+        bail!("空请求体");
+    }
+
+    Ok(serde_json::from_slice::<serde_json::Value>(&data)?)
+}
+
+async fn handle_client(app_handle: tauri::AppHandle, mut stream: TcpStream) -> Result<()> {
+    let raw = read_json_request(&mut stream).await?;
     let req_type = raw
         .get("type")
         .and_then(|v| v.as_str())
@@ -57,6 +87,12 @@ async fn handle_client(app_handle: tauri::AppHandle, mut stream: TcpStream) -> R
 
     if req_type == "DISTRIBUTE_EXAM_PAPER" {
         let req: DistributeExamPaperRequest = serde_json::from_value(raw)?;
+        eprintln!(
+            "[control-server] receive DISTRIBUTE_EXAM_PAPER request_id={} session_id={} questions_size={}",
+            req.request_id,
+            req.payload.session_id,
+            req.payload.questions_payload.len()
+        );
 
         let result = crate::services::exam_runtime_service::ExamRuntimeService::upsert_distribution(
             &app_handle,
@@ -66,7 +102,10 @@ async fn handle_client(app_handle: tauri::AppHandle, mut stream: TcpStream) -> R
 
         let (success, message) = match result {
             Ok(()) => (true, "试卷已落库".to_string()),
-            Err(err) => (false, format!("试卷落库失败: {}", err)),
+            Err(err) => {
+                eprintln!("[control-server] distribute persist failed: {}", err);
+                (false, format!("试卷落库失败: {}", err))
+            }
         };
 
         let ack = DistributeExamPaperAck {

@@ -156,17 +156,22 @@ pub async fn distribute_exam_paper(
 ) -> Result<DistributeExamPaperAck> {
     let addr = format!("{}:{}", device_ip, control_port);
 
-    let mut stream = timeout(Duration::from_secs(3), TcpStream::connect(&addr))
+    let mut stream = timeout(Duration::from_secs(5), TcpStream::connect(&addr))
         .await
         .with_context(|| format!("连接学生端超时: {}", addr))??;
 
     let payload = serde_json::to_vec(request)?;
-    timeout(Duration::from_secs(3), stream.write_all(&payload))
+    timeout(Duration::from_secs(5), stream.write_all(&payload))
         .await
         .with_context(|| format!("发送试卷超时: {}", addr))??;
 
+    // 显式半关闭写端，帮助学生端尽快完成请求边界识别。
+    timeout(Duration::from_secs(2), stream.shutdown())
+        .await
+        .with_context(|| format!("关闭写入通道超时: {}", addr))??;
+
     let mut buf = Vec::with_capacity(4096);
-    timeout(Duration::from_secs(3), stream.read_to_end(&mut buf))
+    timeout(Duration::from_secs(20), stream.read_to_end(&mut buf))
         .await
         .with_context(|| format!("读取学生端发卷回执超时: {}", addr))??;
 
