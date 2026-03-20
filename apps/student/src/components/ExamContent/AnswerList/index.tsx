@@ -1,10 +1,10 @@
+import type { ExamQuestionOption } from "@/types/exam";
+
 type AnswerListProps = {
-  options: string[];
+  options: ExamQuestionOption[];
   selectedOption: number | null;
   onSelect: (index: number) => void;
 };
-
-const optionLabels = ["A", "B", "C", "D", "E", "F"];
 
 export default function AnswerList({
   options,
@@ -17,7 +17,7 @@ export default function AnswerList({
         const isSelected = selectedOption === index;
         return (
           <button
-            key={`${option}-${index}`}
+            key={`${option.key}`}
             type="button"
             onClick={() => onSelect(index)}
             className={`flex w-full items-start gap-3 rounded-md border px-4 py-3 text-left transition ${
@@ -27,9 +27,9 @@ export default function AnswerList({
             }`}
           >
             <span className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-current text-xs font-semibold">
-              {optionLabels[index] ?? `${index + 1}`}
+              {option.key || `${index + 1}`}
             </span>
-            <span className="text-sm leading-6">{option}</span>
+            <span className="text-sm leading-6">{option.text}</span>
           </button>
         );
       })}

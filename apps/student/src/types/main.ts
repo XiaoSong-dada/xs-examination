@@ -1,3 +1,5 @@
+import type { ExamQuestionOption } from "./exam";
+
 export interface Exam {
   id: string;
   title?: string;
@@ -42,7 +44,7 @@ export interface RuntimeQuestion {
   seq: number;
   type: string;
   content: string;
-  options: string[];
+  options: ExamQuestionOption[];
   score: number;
   explanation?: string;
   images: string[];
@@ -51,6 +53,14 @@ export interface RuntimeQuestion {
 export interface AssignedStudent {
   studentNo: string;
   name: string;
+}
+
+export interface DeviceRuntimeStatus {
+  ip: string | null;
+}
+
+export interface DeviceIpUpdatedEvent {
+  ip: string | null;
 }
 
 export type TeacherConnectionStatus =
@@ -83,6 +93,7 @@ export interface DeviceStore {
   setAssignedStudent: (s: AssignedStudent | null) => void;
   setTeacherMasterEndpoint: (ep: string | null) => void;
   setTeacherConnectionStatus: (s: TeacherConnectionStatus) => void;
+  initDeviceInfo: () => Promise<void>;
   initTeacherInfo: () => Promise<void>;
 }
 

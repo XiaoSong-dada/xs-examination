@@ -410,14 +410,14 @@ export function DevicesPage() {
             label="主教师端地址"
             rules={[{ required: true, message: "请输入主教师端地址" }]}
           >
-            <Input placeholder="例如 ws://192.168.1.10:18765" />
+            <Input placeholder="例如 ws://192.168.1.10:18888" />
           </Form.Item>
 
           <Form.Item
             name="slaveEndpoint"
             label="备用教师端地址（可选）"
           >
-            <Input placeholder="例如 ws://192.168.1.11:18765" />
+            <Input placeholder="例如 ws://192.168.1.11:18888" />
           </Form.Item>
 
           <Form.Item

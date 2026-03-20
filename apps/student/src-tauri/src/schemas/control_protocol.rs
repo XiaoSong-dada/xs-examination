@@ -41,8 +41,26 @@ pub struct TeacherEndpointInput {
 pub struct ApplyTeacherEndpointsPayload {
     #[serde(rename = "configVersion")]
     pub config_version: Option<i64>,
+    #[serde(rename = "sessionId")]
+    pub session_id: Option<String>,
+    #[serde(rename = "examId")]
+    pub exam_id: Option<String>,
+    #[serde(rename = "examTitle")]
+    pub exam_title: Option<String>,
     #[serde(rename = "studentId")]
     pub student_id: String,
+    #[serde(rename = "studentNo")]
+    pub student_no: Option<String>,
+    #[serde(rename = "studentName")]
+    pub student_name: Option<String>,
+    #[serde(rename = "assignedIpAddr")]
+    pub assigned_ip_addr: Option<String>,
+    #[serde(rename = "assignmentStatus")]
+    pub assignment_status: Option<String>,
+    #[serde(rename = "startTime")]
+    pub start_time: Option<i64>,
+    #[serde(rename = "endTime")]
+    pub end_time: Option<i64>,
     pub endpoints: Vec<TeacherEndpointInput>,
 }
 

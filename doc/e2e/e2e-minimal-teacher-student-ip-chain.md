@@ -1,18 +1,20 @@
-# 教师端初始化学生端 IP/教师地址的最小 e2e 链路
+# 教师端初始化学生端 IP、教师地址与学生端本机 IP 展示的最小 e2e 链路
 
 ## 目标
 
-这份文档现在梳理两条最短业务链：
+这份文档现在梳理三条最短业务链：
 
-1. 教师端在“设备管理”页面录入教师端地址后，如何把这些地址下发到学生端，并最终写入学生端本地数据库。
-2. 教师端在“分配考生”页面点击“连接考生设备”后，如何让学生端建立 WebSocket 连接，并把真实连接状态回流到“分配考生”和“实时监考”页面。
+1. 学生端如何解析本机设备 IP，并把同一份 IP 同时用于 discovery ACK 和前端 Header 展示。
+2. 教师端在“设备管理”页面录入教师端地址后，如何把这些地址下发到学生端，并最终写入学生端本地数据库。
+3. 教师端在“分配考生”页面点击“连接考生设备”后，如何让学生端建立 WebSocket 连接、预写入本地 `exam_sessions`，并把真实连接状态回流到“分配考生”和“实时监考”页面。
 
 这里先纠正两个容易混淆的点：
 
-1. 这条“下发教师地址”链路不是 UDP 广播。
-2. 这条链路的真正网络传输方式，是教师端根据已选中的学生设备 IP，逐台通过 TCP 直连学生端控制端口。
+1. “下发教师地址”与“连接考生设备”两条链路都不是 UDP 广播。
+2. 这两条链路的真正网络传输方式，都是教师端根据已知学生设备 IP，逐台通过 TCP 直连学生端控制端口。
+3. 学生端 discovery ACK 里的 `ip` 和 Header 里的“设备 IP”现在都应优先来自同一个本机 IP 解析工具，而不是直接取 `peer.ip()`。
 
-UDP 监听只出现在学生端的设备发现链路里，对应 apps/student/src-tauri/src/network/discovery_listener.rs；它不参与本次“下发教师地址”的最短链路。
+UDP 监听只出现在学生端的设备发现链路里，对应 apps/student/src-tauri/src/network/discovery_listener.rs；但该链路现在也会复用本机 IP 解析工具，把解析出的设备 IP 写进 ACK，并在解析失败时才回退到 `peer.ip()`。
 
 ## 2026-03-20 封装更新结论
 
@@ -29,9 +31,57 @@ UDP 监听只出现在学生端的设备发现链路里，对应 apps/student/sr
 2. 网络层内部调用点发生了收口。
 3. 后续查问题时，除了 `ws_server.rs`、`ws_client.rs`、`student_control_client.rs`、`control_server.rs`，还要同步看各自的 `network/transport/*.rs`。
 
+## 2026-03-21 设备 IP 更新结论
+
+这次学生端 IP 改动新增了一条独立且可复用的运行态链路。
+
+变化的是：
+
+1. 学生端 Rust 新增 `network/device_network.rs`，通过 UDP route probing 解析本机出站 IPv4。
+2. 学生端 Rust 新增 `controllers/device_controller.rs -> services/device_service.rs`，把设备 IP 作为 Tauri 运行态命令 `get_device_runtime_status` 暴露给前端。
+3. 学生端前端新增 `services/deviceService.ts -> store/deviceStore.ts::initDeviceInfo`，Header 不再等待别的业务链间接带出 IP，而是主动调用后端命令并监听 `device_ip_updated` 事件。
+4. `discovery_listener.rs` 不再直接把 `peer.ip()` 当作设备 IP 回包，而是优先复用 `network/device_network.rs::resolve_device_ip()`，只有解析失败才回退。
+
+因此应这样理解本次更新：
+
+1. 教师端发现学生设备时看到的 IP。
+2. 学生端 Header 中显示的设备 IP。
+3. 学生端后台事件里回流给前端的设备 IP。
+
+这三者现在已经开始收敛到同一份本机 IP 来源。
+
 ## 最短链路结论
 
-### 链路 A：设备管理页统一下发教师地址
+### 链路 A：学生端本机 IP 获取并展示到 Header
+
+最短链路如下：
+
+1. 学生端前端 `layout/AppHeader.tsx` 挂载后调用 `deviceStore.initTeacherInfo()`。
+2. `deviceStore.initTeacherInfo()` 会先调用 `initDeviceInfo()`。
+3. `initDeviceInfo()` 通过 `services/deviceService.ts` invoke `get_device_runtime_status`。
+4. 学生端 Rust `controllers/device_controller.rs` 接收命令后，调用 `DeviceService::get_runtime_status()`。
+5. `services/device_service.rs` 再调用 `network/device_network.rs::resolve_device_ip()`。
+6. `resolve_device_ip()` 通过 UDP route probing 获取当前出站网卡对应的本机 IPv4。
+7. controller 返回 `DeviceRuntimeStatusDto { ip }`，并同步发出 `device_ip_updated` 事件。
+8. 学生端前端 `deviceStore` 一方面使用 invoke 返回值设置 `ip`，另一方面订阅 `device_ip_updated` 持续刷新 `ip`。
+9. `AppHeader.tsx` 最终从 `deviceStore.ip` 渲染“设备 IP”。
+
+如果只看“学生端 Header 中的设备 IP 从哪里来”，真正业务出口不是 `AppHeader` 本身，也不是 discovery ACK，而是 `apps/student/src-tauri/src/network/device_network.rs` 成功解析出本机 IP，并由 `deviceStore` 写入前端状态。
+
+### 链路 A 的 discovery 一致性补充
+
+最短链路如下：
+
+1. 教师端设备发现时向局域网广播 `DISCOVER_STUDENT_DEVICES`。
+2. 学生端 `network/discovery_listener.rs` 收到广播请求。
+3. `discovery_listener.rs` 现在优先调用 `network/device_network.rs::resolve_device_ip()`。
+4. 若解析成功，则把该 IP 填入 `DiscoverAckPayload.ip`。
+5. 若解析失败，才回退为 `peer.ip().to_string()`。
+6. 同时学生端发出一次 `device_ip_updated` 事件，把当前解析到的 IP 回流给前端。
+
+因此，这条链路的更新点不是“教师端怎么发现学生端”，而是“学生端回包给教师端的 IP 已改为和本机运行态查询共用同一来源”。
+
+### 链路 B：设备管理页统一下发教师地址
 
 最短链路如下：
 
@@ -48,7 +98,7 @@ UDP 监听只出现在学生端的设备发现链路里，对应 apps/student/sr
 
 如果只看“教师端输入的地址最终进入学生端数据库”这个目标，那么真正出口不是 handle_client 本身，而是 apps/student/src-tauri/src/services/teacher_endpoints_service.rs 中 replace_all 的事务提交成功。
 
-### 链路 B：分配页一键连接考生设备并回流真实状态
+### 链路 C：分配页一键连接考生设备并回流真实状态
 
 最短链路如下：
 
@@ -58,12 +108,14 @@ UDP 监听只出现在学生端的设备发现链路里，对应 apps/student/sr
 4. 仅保留 `ip_addr` 非空的记录，并为每条记录构造一次 `APPLY_TEACHER_ENDPOINTS` 请求。
 5. 这里请求里的 `payload.student_id` 必须使用真实学生 `student_id`，不能使用设备 `device_id`。
 6. 教师端通过 `network/student_control_client.rs` 逐台 TCP 直连学生端 `control_port` 发送请求。
-7. 学生端 `control_server::handle_client` 收到后调用 `TeacherEndpointsService::replace_all` 完成地址落库。
-8. 学生端落库成功后调用 `network/ws_client.rs::connect` 主动连接教师端 WebSocket。
-9. 学生端建立 WebSocket 后按 5 秒周期发送 `HEARTBEAT`，payload 中带上同一个 `student_id`。
-10. 教师端 `network/ws_server.rs` 收到心跳后调用 `state.touch_connection(student_id, timestamp)` 更新运行时连接快照。
-11. 教师端前端 `hooks/useDeviceAssign.ts` 与 `hooks/useMonitor.ts` 再通过 `get_student_device_connection_status_by_exam_id` 查询按考试聚合后的真实状态。
-12. 最终“分配考生”和“实时监考”页面都会展示同一套四态：待分配、未连接、正常、异常。
+7. 学生端 `control_server::handle_client` 收到后先调用 `TeacherEndpointsService::replace_all` 完成地址落库。
+8. 随后学生端调用 `ExamRuntimeService::upsert_connected_session`，把 `session_id/exam_id/exam_title/student_no/student_name/assigned_ip_addr` 等最小会话信息预写入本地 `exam_sessions`。
+9. 学生端落库成功后调用 `network/ws_client.rs::connect` 主动连接教师端 WebSocket。
+10. 学生端建立 WebSocket 后按 5 秒周期发送 `HEARTBEAT`，payload 中带上同一个 `student_id`。
+11. 教师端 `network/ws_server.rs` 收到心跳后调用 `state.touch_connection(student_id, timestamp)` 更新运行时连接快照。
+12. 教师端前端 `hooks/useDeviceAssign.ts` 与 `hooks/useMonitor.ts` 再通过 `get_student_device_connection_status_by_exam_id` 查询按考试聚合后的真实状态。
+13. 学生端前端则通过 `get_current_exam_bundle -> examStore -> AppHeader` 在 WebSocket 真连接成功后显示考试标题、学生名称等信息。
+14. 最终“分配考生”和“实时监考”页面都会展示同一套四态，学生端 Header 也会展示当前会话信息。
 
 ## 入口到出口的精简调用链
 
@@ -142,10 +194,11 @@ apps/teacher/src/services/studentService.ts 中的 connectStudentDevicesByExamId
 
 1. 按 `exam_id` 读取当前考试下的 `StudentDeviceAssignDto` 列表。
 2. 仅保留 `ip_addr` 非空的记录。
-3. 使用教师端本机 IP 和 `WS_SERVER_PORT` 组装主教师端地址，例如 `ws://teacher-ip:18765`。
-4. 对每条分配记录构造 `ApplyTeacherEndpointsRequest`。
+3. 使用教师端本机 IP 和 `WS_SERVER_PORT` 组装主教师端地址，例如 `ws://teacher-ip:18888`。
+4. 读取当前考试信息，并对每条分配记录构造 `ApplyTeacherEndpointsRequest`。
 5. 关键约束：请求中的 `payload.student_id` 必须取自分配记录里的 `student_id`，不能取设备表里的 `device_id`。
-6. 再调用 `student_control_client::apply_teacher_endpoints(device_ip, 18889, &req)` 逐台下发。
+6. 当前请求除了教师端地址，还会携带 `session_id`、`exam_id`、`exam_title`、`student_no`、`student_name`、`assigned_ip_addr`、考试时间等连接阶段会话字段。
+7. 再调用 `student_control_client::apply_teacher_endpoints(device_ip, 18889, &req)` 逐台下发。
 7. 该函数底层通过 `network/transport/tcp_request_reply.rs::send_json_request(...)` 执行 TCP 单播与 ACK 读取。
 
 ### 4. 为什么 `student_id` 映射是关键
@@ -211,8 +264,9 @@ apps/student/src-tauri/src/network/control_server.rs 的 handle_client 在收到
 2. 反序列化为 ApplyTeacherEndpointsRequest。
 3. 校验 type 是否为 APPLY_TEACHER_ENDPOINTS。
 4. 调用 TeacherEndpointsService::replace_all(&app_handle, &req.payload.endpoints)。
+5. 地址落库成功后，再调用 `ExamRuntimeService::upsert_connected_session(&app_handle, &req.payload)` 预写入本地 `exam_sessions`。
 
-真正写库逻辑在 apps/student/src-tauri/src/services/teacher_endpoints_service.rs：
+地址写库逻辑在 apps/student/src-tauri/src/services/teacher_endpoints_service.rs：
 
 1. 校验 endpoints 非空。
 2. 校验 isMaster=true 的记录必须且只能有一条。
@@ -221,10 +275,18 @@ apps/student/src-tauri/src/network/control_server.rs 的 handle_client 在收到
 5. 再逐条 insert 新的 endpoints。
 6. 最后 txn.commit()。
 
-所以，如果要严格定义“出口”，应该分两层：
+连接阶段会话写库逻辑在 apps/student/src-tauri/src/services/exam_runtime_service.rs：
+
+1. 当 payload 中携带 `session_id/exam_id/exam_title/student_no/student_name/assigned_ip_addr` 时，执行 `upsert_connected_session`。
+2. 若本地已存在相同 `session_id`，则更新为 `connected_pending_distribution` 状态。
+3. 若不存在，则插入一条最小会话记录。
+4. 此时不写入 `exam_snapshots`。
+
+所以，如果要严格定义“出口”，应该分三层：
 
 1. 业务出口：replace_all 的 txn.commit() 成功，teacher_endpoints 表完成批量替换。
-2. 链路出口：学生端返回 APPLY_TEACHER_ENDPOINTS_ACK，教师端拿到 successCount 和每台设备的回执。
+2. 会话出口：`upsert_connected_session` 成功，学生端 `exam_sessions` 完成连接阶段预写入。
+3. 链路出口：学生端返回 APPLY_TEACHER_ENDPOINTS_ACK，教师端拿到 successCount 和每台设备的回执。
 
 如果你关注的是“IP/教师地址何时真正进入学生端数据库”，那真正出口应写成：
 
@@ -248,8 +310,9 @@ handle_client 在 replace_all 成功后，还会做一个附加动作：
 
 对分配页链路再补充一点：
 
-1. 分配页里“连接请求已下发：成功 X/Y”只说明 TCP 下发和学生端地址落库成功。
+1. 分配页里“连接请求已下发：成功 X/Y”现在说明 TCP 下发、学生端地址落库，以及连接阶段会话预写入成功。
 2. UI 最终是否显示“正常”，还取决于学生端后续是否真的连上教师端 WebSocket，并且教师端是否按正确的 `student_id` 聚合到了心跳。
+3. 学生端 Header 是否展示考试标题和学生名称，也取决于 WebSocket 是否真的连接成功，因为当前前端展示口径仍以 `teacherConnectionStatus === connected` 为准。
 
 ## 相关数据表
 
@@ -272,4 +335,4 @@ handle_client 在 replace_all 成功后，还会做一个附加动作：
 
 因此，真正出口应写为 replace_all 的事务提交成功，而不是“监听端口的 handle_client 本身”。
 
-而教师端“分配页连接考生设备并刷新真实状态”的最短链路是：分配页按钮 -> Tauri IPC -> 教师端按考试分配记录逐台下发 `APPLY_TEACHER_ENDPOINTS` -> 教师端 transport 薄层执行 TCP request-reply -> 学生端落库并连接教师端 WebSocket -> 学生端 transport 薄层执行 WS connect / writer loop -> 学生端以真实 `student_id` 持续发送心跳 -> 教师端按 `student_id` 更新连接快照 -> 分配页与监考页统一查询四态状态。
+而教师端“分配页连接考生设备并刷新真实状态”的最短链路是：分配页按钮 -> Tauri IPC -> 教师端按考试分配记录逐台下发携带会话字段的 `APPLY_TEACHER_ENDPOINTS` -> 教师端 transport 薄层执行 TCP request-reply -> 学生端先落库 `teacher_endpoints` 再预写入 `exam_sessions` -> 学生端连接教师端 WebSocket -> 学生端 transport 薄层执行 WS connect / writer loop -> 学生端以真实 `student_id` 持续发送心跳 -> 教师端按 `student_id` 更新连接快照 -> 分配页与监考页统一查询四态状态，同时学生端 Header 在 ws connected 后显示考试标题和学生名称。

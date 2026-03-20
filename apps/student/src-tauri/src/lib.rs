@@ -2,6 +2,7 @@ pub mod config;
 pub mod db;
 pub mod state;
 pub mod commands;
+pub mod controllers;
 pub mod network;
 pub mod schemas;
 pub mod services;
@@ -42,6 +43,7 @@ pub fn run() {
             commands::get_ws_status,
             commands::get_teacher_runtime_status,
             commands::get_current_exam_bundle,
+            controllers::device_controller::get_device_runtime_status,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
