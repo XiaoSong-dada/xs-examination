@@ -1,5 +1,6 @@
 use tauri::State;
 
+use crate::core::setting::SETTINGS;
 use crate::schemas::device_schema;
 use crate::network::student_control_client;
 use crate::schemas::student_exam_schema;
@@ -184,7 +185,7 @@ pub async fn connect_student_devices_by_exam_id(
             },
         };
 
-        match student_control_client::apply_teacher_endpoints(&device_ip, 18889, &req).await {
+        match student_control_client::apply_teacher_endpoints(&device_ip, SETTINGS.std_controller_port, &req).await {
             Ok(ack) => results.push(device_schema::PushTeacherEndpointsResultItem {
                 device_id,
                 device_ip,

@@ -28,12 +28,12 @@ impl AppConfig {
         let listener_port = std::env::var("LISTENER_PORT")
             .ok()
             .and_then(|v| v.parse::<u16>().ok())
-            .unwrap_or(18888);
+            .unwrap_or(28888);
 
         let control_port = std::env::var("CONTROL_PORT")
             .ok()
             .and_then(|v| v.parse::<u16>().ok())
-            .unwrap_or(18889);
+            .unwrap_or(38888);
 
         Ok(Self {
             db_name,

@@ -7,6 +7,7 @@ use tokio::net::TcpListener;
 use tokio::sync::mpsc;
 use tokio_tungstenite::{accept_async, tungstenite::Message};
 
+use crate::core::setting::SETTINGS;
 use crate::network::protocol::{ExamStartPayload, MessageType, WsMessage};
 
 #[derive(Debug, Clone, Deserialize)]
@@ -31,15 +32,8 @@ struct HeartbeatPayload {
     student_id: String,
 }
 
-fn ws_port() -> u16 {
-    std::env::var("WS_SERVER_PORT")
-        .ok()
-        .and_then(|v| v.parse::<u16>().ok())
-        .unwrap_or(18765)
-}
-
 pub async fn start_ws_server(app_handle: tauri::AppHandle) -> Result<()> {
-    let bind_addr = format!("0.0.0.0:{}", ws_port());
+    let bind_addr = format!("0.0.0.0:{}", SETTINGS.ws_server_port);
     let listener = TcpListener::bind(&bind_addr)
         .await
         .with_context(|| format!("WebSocket 服务监听失败: {}", bind_addr))?;

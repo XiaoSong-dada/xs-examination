@@ -10,15 +10,9 @@ use crate::network::student_control_client;
 use crate::schemas::student_exam_schema;
 use crate::repos::student_exam_repo;
 use crate::services::{exam_service, question_service};
+use crate::utils::datetime::now_ms;
 
 const HEARTBEAT_TIMEOUT_MS: i64 = 15_000;
-
-fn now_ms() -> i64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_millis() as i64)
-        .unwrap_or_default()
-}
 
 fn derive_connection_status(ip_addr: Option<&str>, last_heartbeat_at: Option<i64>, now: i64) -> (String, bool) {
     if ip_addr.map(|v| v.trim().is_empty()).unwrap_or(true) {

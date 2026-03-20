@@ -1,5 +1,6 @@
 pub mod commands;
 pub mod controllers;
+pub mod core;
 pub mod services;
 pub mod repos;
 pub mod models;
