@@ -5,7 +5,7 @@ use sea_orm::{
 use tauri::Manager;
 
 use crate::db::entities::{exam_sessions, exam_snapshots};
-use crate::schemas::control_protocol::DistributeExamPaperPayload;
+use crate::schemas::control_protocol::{ApplyTeacherEndpointsPayload, DistributeExamPaperPayload};
 use crate::schemas::exam_runtime_schema::{CurrentExamBundleDto, ExamSessionDto, ExamSnapshotDto};
 
 fn now_ms() -> i64 {
@@ -18,6 +18,94 @@ fn now_ms() -> i64 {
 pub struct ExamRuntimeService;
 
 impl ExamRuntimeService {
+    pub async fn upsert_connected_session(
+        app_handle: &tauri::AppHandle,
+        payload: &ApplyTeacherEndpointsPayload,
+    ) -> Result<bool> {
+        let (
+            Some(session_id),
+            Some(exam_id),
+            Some(exam_title),
+            Some(student_no),
+            Some(student_name),
+            Some(assigned_ip_addr),
+        ) = (
+            payload.session_id.clone(),
+            payload.exam_id.clone(),
+            payload.exam_title.clone(),
+            payload.student_no.clone(),
+            payload.student_name.clone(),
+            payload.assigned_ip_addr.clone(),
+        ) else {
+            return Ok(false);
+        };
+
+        if session_id.trim().is_empty()
+            || exam_id.trim().is_empty()
+            || exam_title.trim().is_empty()
+            || student_no.trim().is_empty()
+            || student_name.trim().is_empty()
+            || assigned_ip_addr.trim().is_empty()
+        {
+            return Ok(false);
+        }
+
+        let state = app_handle.state::<crate::state::AppState>();
+        let ts = now_ms();
+        let assignment_status = payload
+            .assignment_status
+            .clone()
+            .unwrap_or_else(|| "assigned".to_string());
+
+        let existing_session = exam_sessions::Entity::find_by_id(session_id.clone())
+            .one(&state.db)
+            .await?;
+
+        match existing_session {
+            Some(row) => {
+                let mut model: exam_sessions::ActiveModel = row.into();
+                model.exam_id = Set(exam_id);
+                model.student_id = Set(payload.student_id.clone());
+                model.student_no = Set(student_no);
+                model.student_name = Set(student_name);
+                model.assigned_ip_addr = Set(assigned_ip_addr);
+                model.exam_title = Set(exam_title);
+                model.status = Set("connected_pending_distribution".to_string());
+                model.assignment_status = Set(assignment_status);
+                model.started_at = Set(None);
+                model.ends_at = Set(payload.end_time);
+                model.paper_version = Set(None);
+                model.encryption_nonce = Set(None);
+                model.updated_at = Set(ts);
+                model.update(&state.db).await?;
+            }
+            None => {
+                let model = exam_sessions::ActiveModel {
+                    id: Set(session_id),
+                    exam_id: Set(exam_id),
+                    student_id: Set(payload.student_id.clone()),
+                    student_no: Set(student_no),
+                    student_name: Set(student_name),
+                    assigned_ip_addr: Set(assigned_ip_addr),
+                    assigned_device_name: Set(None),
+                    exam_title: Set(exam_title),
+                    status: Set("connected_pending_distribution".to_string()),
+                    assignment_status: Set(assignment_status),
+                    started_at: Set(None),
+                    ends_at: Set(payload.end_time),
+                    paper_version: Set(None),
+                    encryption_nonce: Set(None),
+                    last_synced_at: Set(None),
+                    created_at: Set(ts),
+                    updated_at: Set(ts),
+                };
+                model.insert(&state.db).await?;
+            }
+        }
+
+        Ok(true)
+    }
+
     pub async fn upsert_distribution(
         app_handle: &tauri::AppHandle,
         payload: &DistributeExamPaperPayload,

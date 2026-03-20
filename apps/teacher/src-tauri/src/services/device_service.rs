@@ -127,7 +127,16 @@ pub async fn push_teacher_endpoints_to_devices(
             timestamp: now_ms(),
             payload: student_control_client::ApplyTeacherEndpointsPayload {
                 config_version: Some(1),
+                session_id: None,
+                exam_id: None,
+                exam_title: None,
                 student_id: device.id.clone(),
+                student_no: None,
+                student_name: None,
+                assigned_ip_addr: None,
+                assignment_status: None,
+                start_time: None,
+                end_time: None,
                 endpoints: payload
                     .endpoints
                     .iter()
