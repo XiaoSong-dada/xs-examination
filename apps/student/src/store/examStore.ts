@@ -1,22 +1,20 @@
 import { create } from "zustand";
 import type { ExamStore, RuntimeQuestion } from "@/types/main";
+import type { ExamQuestionOption } from "@/types/exam";
 import { getCurrentExamBundle } from "@/services/examRuntimeService";
 
-function parseOptions(raw?: string): string[] {
-    if (!raw) {
-        return [];
-    }
-
+function parseOptions(raw?: unknown): ExamQuestionOption[] {
+    if (raw == null)return [];
+    if (Array.isArray(raw)) return raw as ExamQuestionOption[];
     try {
-        const parsed = JSON.parse(raw) as unknown;
-        if (Array.isArray(parsed)) {
-            return parsed.map((item) => String(item));
-        }
+        const parsed = JSON.parse(String(raw)) as ExamQuestionOption[];
+        if (Array.isArray(parsed))return parsed;
     } catch (_err) {
-        // ignore parse error and fallback to plain text
+        console.error("Failed to parse options:", _err);
     }
 
-    return [raw];
+    const fallback = String(raw).trim();
+    return fallback ? [{ key: "1", text: fallback }] : [];
 }
 
 function parseQuestions(payload?: string): RuntimeQuestion[] {
@@ -35,7 +33,7 @@ function parseQuestions(payload?: string): RuntimeQuestion[] {
             seq: Number(item.seq ?? 0),
             type: String(item.type ?? "single"),
             content: String(item.content ?? ""),
-            options: parseOptions(typeof item.options === "string" ? item.options : undefined),
+            options: parseOptions(item.options),
             score: Number(item.score ?? 0),
             explanation: typeof item.explanation === "string" ? item.explanation : undefined,
             images: [],
@@ -58,7 +56,7 @@ export const useExamStore = create<ExamStore>((set) => ({
             const bundle = await getCurrentExamBundle();
             const session = bundle.session ?? null;
             const snapshot = bundle.snapshot ?? null;
-
+            
             set({
                 currentSession: session,
                 currentSnapshot: snapshot,

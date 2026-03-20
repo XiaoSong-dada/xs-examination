@@ -1,3 +1,5 @@
+import type { ExamQuestionOption } from "./exam";
+
 export interface Exam {
   id: string;
   title?: string;
@@ -42,7 +44,7 @@ export interface RuntimeQuestion {
   seq: number;
   type: string;
   content: string;
-  options: string[];
+  options: ExamQuestionOption[];
   score: number;
   explanation?: string;
   images: string[];
