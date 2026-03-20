@@ -360,6 +360,7 @@ graph TD
 | layout | `layout/` | 顶部头部与页面骨架 |
 | pages | `pages/Exam/` | 考试主页面 |
 | components | `components/ExamContent/` | 答题内容组件 |
+| services | `services/` | 前端服务层，封装 Tauri invoke 与 event listen |
 | store | `store/` | Zustand 本地状态 |
 | types | `types/` | 前端本地类型 |
 | styles | `styles/` | 全局样式 |
@@ -372,6 +373,7 @@ graph TD
     SLayout[layout]
     SPages[pages]
     SComp[components]
+    SServices[services]
     SStore[store]
     STypes[types]
     SStyles[styles]
@@ -384,9 +386,11 @@ graph TD
     SLayout --> SStore
     SPages --> SComp
     SPages --> SStore
+    SStore --> SServices
     SStore --> STypes
+    SServices --> STypes
+    SServices --> StudentRS
     SMain -. workspace dependency .-> Shared
-    SMain -. IPC boundary .-> StudentRS
 ```
 
 ### 6.4 扇入 / 扇出
@@ -397,22 +401,25 @@ graph TD
 | layout | entry | store |
 | pages | entry | components、store |
 | components | pages | 0 或极少继续扇出 |
-| store | layout、pages | types |
-| types | store | 0 |
+| services | store | `@tauri-apps/api`、types、student-rust |
+| store | layout、pages | services、types |
+| types | store、services | 0 |
 | styles | entry | 0 |
 
 ### 6.5 快速定位
 
 - 若任务是“考试界面展示”，优先看 `pages/Exam/` 与 `components/ExamContent/`。
-- 若任务是“头部信息与设备状态”，优先看 `layout/AppHeader.tsx` 与 `store/`。
+- 若任务是“头部信息与设备状态”，优先看 `layout/AppHeader.tsx`、`store/`、`services/`。
 - 若任务是“前端状态变更”，优先看 `store/examStore.ts`、`store/deviceStore.ts`。
+- 若任务是“设备 IP 获取 / Header 设备 IP 显示异常”，优先看 `layout/AppHeader.tsx`、`store/deviceStore.ts`、`services/deviceService.ts`。
 - 若任务是“为什么学生端显示未收到试卷 / 已收到试卷”，优先看 `App.tsx`、`store/examStore.ts`、`services/examRuntimeService.ts`。
 - 若任务是“为什么连接成功后 Header 没显示学生名称或考试标题”，优先看 `layout/AppHeader.tsx`、`store/examStore.ts`、`store/deviceStore.ts`，并确认当前 `teacherConnectionStatus` 是否已进入 `connected`。
 
 ### 6.6 说明
 
 - 学生端前端同样声明依赖了 `@xs/shared-types`，但当前结构扫描未看到明显实际 import。
-- 当前结构更偏“单页考试壳 + 本地 store”，复杂度明显低于教师端前端。
+- 当前结构更偏“单页考试壳 + store/service 桥接 Tauri”，复杂度明显低于教师端前端。
+- 设备 IP 现在已形成稳定链路：`AppHeader -> deviceStore.initDeviceInfo -> services/deviceService.ts -> get_device_runtime_status/device_ip_updated -> student-rust`，不再依赖组件层直接感知后端事件。
 
 ---
 
@@ -433,24 +440,25 @@ graph TD
 - `connect_teacher_ws`
 - `send_answer_sync`
 - `get_ws_status`
+- `get_teacher_runtime_status`
 - `get_current_exam_bundle`
+- `get_device_runtime_status`
 
 ### 7.2 模块分组
 
 | 模块组 | 位置 | 说明 |
 |------|------|------|
 | entry | `main.rs` / `lib.rs` | 启动与命令注册 |
-| commands | `commands.rs` | Tauri IPC 命令层 |
-| network | `network/` | 发现、控制服务、WS 客户端 |
+| commands | `commands.rs` | 现有通用 Tauri IPC 命令层 |
+| controllers | `controllers/` | 新增的控制层入口，当前已承载设备运行态命令 |
+| network | `network/` | 发现、控制服务、WS 客户端、本机 IP 获取工具 |
 | network-transport | `network/transport/` | WS connect / writer loop、TCP bind/read/write 的薄封装层 |
-| services | `services/` | 业务服务，现包含教师端地址配置、连接阶段会话预写入、发卷落库与考试运行时读取 |
+| services | `services/` | 业务服务，现包含教师端地址配置、设备 IP 运行态查询、连接阶段会话预写入、发卷落库与考试运行时读取 |
 | schemas | `schemas/` | 控制协议与网络协议结构 |
 | state | `state.rs` | 应用共享状态 |
 | db | `db/` | 本地数据库与实体 |
 | config | `config.rs` | 配置读取 |
 | utils | `utils/` | 时间等工具函数 |
-| layers | `layers/` | 当前更偏占位/预留层 |
-| controllers | `controllers/` | 当前目录存在但结构权重较低 |
 
 ### 7.3 结构依赖图
 
@@ -458,6 +466,7 @@ graph TD
 graph TD
     SEntry[entry]
     SCmd[commands]
+    SCtrl[controllers]
     SNet[network]
     STransport[network/transport]
     SSvc[services]
@@ -466,13 +475,17 @@ graph TD
     SDb[db]
     SConfig[config]
     SUtils[utils]
-    SLayers[layers]
 
     SEntry --> SCmd
+    SEntry --> SCtrl
     SEntry --> SState
     SEntry --> SNet
     SCmd --> SState
     SCmd --> SNet
+    SCmd --> SSvc
+    SCmd --> SSchema
+    SCtrl --> SSvc
+    SCtrl --> SSchema
     SNet --> STransport
     SNet --> SSchema
     SNet --> SSvc
@@ -480,6 +493,7 @@ graph TD
     SNet --> SState
     SSvc --> SDb
     SSvc --> SState
+    SSvc --> SNet
     SState --> SDb
     SState --> SConfig
 ```
@@ -488,28 +502,30 @@ graph TD
 
 | 模块组 | 扇入 | 扇出 |
 |------|------|------|
-| entry | student-frontend IPC、进程启动 | commands、state、network |
-| commands | entry、student-frontend invoke | state、network |
-| network | entry、commands | transport、schemas、services、utils、state |
+| entry | student-frontend IPC、进程启动 | commands、controllers、state、network |
+| commands | entry、student-frontend invoke | state、network、services、schemas |
+| controllers | entry、student-frontend invoke | services、schemas |
+| network | entry、commands、services | transport、schemas、services、utils、state |
 | network-transport | network | tokio-tungstenite、TcpListener/TcpStream 细节 |
-| services | network | db、state |
-| schemas | network | 0 |
+| services | commands、controllers、network | db、state、network |
+| schemas | commands、controllers、network | 0 |
 | state | entry、commands、network、services | db、config |
 | db | state、services | 0 |
 | config | state | 0 |
 | utils | network | 0 |
-| layers | 当前结构扇入/扇出都很低，偏预留 |
 
 ### 7.5 快速定位
 
 - 若任务是“学生端连接教师端 / 网络握手”，先看 `network/ws_client.rs`。
 - 若任务是“学生端接收教师下发地址或控制消息”，先看 `network/control_server.rs`。
+- 若任务是“设备 IP 获取异常 / discovery ACK IP 不准确 / Header 设备 IP 未知”，先看 `controllers/device_controller.rs`、`services/device_service.rs`、`network/device_network.rs`、`network/discovery_listener.rs`。
 - 若任务是“学生端 WS connect / writer loop 或 TCP bind/read/write 细节”，先看 `network/transport/`。
 - 若任务是“本地缓存与地址持久化”，先看 `services/`、`db/`。
-- 若任务是“IPC 命令与前端桥接”，先看 `commands.rs`。
+- 若任务是“IPC 命令与前端桥接”，先看 `commands.rs` 与 `controllers/`。
 - 若任务是“学生端为何收不到试卷”，先看 `network/control_server.rs`、`services/exam_runtime_service.rs`、`commands.rs`，确认 `DISTRIBUTE_EXAM_PAPER` 是否收到、`exam_sessions/exam_snapshots` 是否落库、`get_current_exam_bundle` 是否能读到数据。
 - 若任务是“学生端连接设备时是否已经建立本地会话”，先看 `network/control_server.rs` 中 `APPLY_TEACHER_ENDPOINTS` 分支和 `services/exam_runtime_service.rs::upsert_connected_session`。
 - 若任务是“为什么同 exam_id 再发卷没有覆盖本地考试标题/学生信息”，先看 `services/exam_runtime_service.rs::upsert_distribution` 中按 `exam_id` 的保护逻辑。
+- 若任务是“为什么 discovery 回包 IP 和 Header 设备 IP 不一致”，先核对两条链是否都已改为复用 `network/device_network.rs::resolve_device_ip`，以及前端是否已通过 `device_ip_updated` 事件刷新 `deviceStore.ip`。
 
 ---
 
@@ -566,6 +582,7 @@ graph TD
 | 实时监考 / 在线学生 | teacher-frontend `pages/Monitor` + teacher-rust `network/` + `controllers/network_controller.rs` |
 | WebSocket / 心跳 / 广播 | teacher-rust `network/ws_server.rs` 或 student-rust `network/ws_client.rs` |
 | 教师地址下发 / 控制服务 | student-rust `network/control_server.rs` + `services/teacher_endpoints_service.rs` |
+| 设备 IP / Header IP / 本机 IP 获取 | student-frontend `layout/AppHeader.tsx` + `store/deviceStore.ts` + `services/deviceService.ts` + student-rust `controllers/device_controller.rs` + `services/device_service.rs` + `network/device_network.rs` |
 | 本地数据库 / 迁移 / 实体 | 对应端的 `src-tauri/src/db/` 和 migrations |
 | 时间工具 / 通用工具 | 对应端的 `src-tauri/src/utils/` 或前端 `src/utils/` |
 
@@ -603,3 +620,4 @@ graph TD
 13. 第二阶段已在学生端 `upsert_distribution` 中落地按 `exam_id` 的保护逻辑：命中同 `exam_id` 时保留本地 `exam_sessions` 基础信息，只更新或写入 `exam_snapshots`。
 14. 考试管理页现已把原先基于 `ip_addr` 的“已连接/未连接”二态展示替换为统一四态“设备状态”，并按 5 秒轮询复用同一状态查询链路，因此三个页面的状态口径已经完成前端统一。
 15. 2026-03-20 起，两端 Rust 网络层新增 `network/transport` 子层：教师端 `ws_server/student_control_client` 与学生端 `ws_client/control_server` 不再直接承载全部底层收发细节，而是把 WebSocket 握手/写循环与 TCP request-reply 的 connect、timeout、read/write 边界逐步下沉到 transport 薄封装。
+16. 2026-03-21 起，学生端设备 IP 已形成独立调用链：前端 `deviceStore/deviceService` 通过 Tauri `get_device_runtime_status` 调用学生端 `controllers/device_controller.rs -> services/device_service.rs -> network/device_network.rs` 获取本机 IP；`discovery_listener.rs` 也复用同一工具生成 ACK 中的设备 IP，并通过 `device_ip_updated` 事件回流前端 Header。

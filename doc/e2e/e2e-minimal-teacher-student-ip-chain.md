@@ -1,18 +1,20 @@
-# 教师端初始化学生端 IP/教师地址的最小 e2e 链路
+# 教师端初始化学生端 IP、教师地址与学生端本机 IP 展示的最小 e2e 链路
 
 ## 目标
 
-这份文档现在梳理两条最短业务链：
+这份文档现在梳理三条最短业务链：
 
-1. 教师端在“设备管理”页面录入教师端地址后，如何把这些地址下发到学生端，并最终写入学生端本地数据库。
-2. 教师端在“分配考生”页面点击“连接考生设备”后，如何让学生端建立 WebSocket 连接、预写入本地 `exam_sessions`，并把真实连接状态回流到“分配考生”和“实时监考”页面。
+1. 学生端如何解析本机设备 IP，并把同一份 IP 同时用于 discovery ACK 和前端 Header 展示。
+2. 教师端在“设备管理”页面录入教师端地址后，如何把这些地址下发到学生端，并最终写入学生端本地数据库。
+3. 教师端在“分配考生”页面点击“连接考生设备”后，如何让学生端建立 WebSocket 连接、预写入本地 `exam_sessions`，并把真实连接状态回流到“分配考生”和“实时监考”页面。
 
 这里先纠正两个容易混淆的点：
 
-1. 这条“下发教师地址”链路不是 UDP 广播。
-2. 这条链路的真正网络传输方式，是教师端根据已选中的学生设备 IP，逐台通过 TCP 直连学生端控制端口。
+1. “下发教师地址”与“连接考生设备”两条链路都不是 UDP 广播。
+2. 这两条链路的真正网络传输方式，都是教师端根据已知学生设备 IP，逐台通过 TCP 直连学生端控制端口。
+3. 学生端 discovery ACK 里的 `ip` 和 Header 里的“设备 IP”现在都应优先来自同一个本机 IP 解析工具，而不是直接取 `peer.ip()`。
 
-UDP 监听只出现在学生端的设备发现链路里，对应 apps/student/src-tauri/src/network/discovery_listener.rs；它不参与本次“下发教师地址”的最短链路。
+UDP 监听只出现在学生端的设备发现链路里，对应 apps/student/src-tauri/src/network/discovery_listener.rs；但该链路现在也会复用本机 IP 解析工具，把解析出的设备 IP 写进 ACK，并在解析失败时才回退到 `peer.ip()`。
 
 ## 2026-03-20 封装更新结论
 
@@ -29,9 +31,57 @@ UDP 监听只出现在学生端的设备发现链路里，对应 apps/student/sr
 2. 网络层内部调用点发生了收口。
 3. 后续查问题时，除了 `ws_server.rs`、`ws_client.rs`、`student_control_client.rs`、`control_server.rs`，还要同步看各自的 `network/transport/*.rs`。
 
+## 2026-03-21 设备 IP 更新结论
+
+这次学生端 IP 改动新增了一条独立且可复用的运行态链路。
+
+变化的是：
+
+1. 学生端 Rust 新增 `network/device_network.rs`，通过 UDP route probing 解析本机出站 IPv4。
+2. 学生端 Rust 新增 `controllers/device_controller.rs -> services/device_service.rs`，把设备 IP 作为 Tauri 运行态命令 `get_device_runtime_status` 暴露给前端。
+3. 学生端前端新增 `services/deviceService.ts -> store/deviceStore.ts::initDeviceInfo`，Header 不再等待别的业务链间接带出 IP，而是主动调用后端命令并监听 `device_ip_updated` 事件。
+4. `discovery_listener.rs` 不再直接把 `peer.ip()` 当作设备 IP 回包，而是优先复用 `network/device_network.rs::resolve_device_ip()`，只有解析失败才回退。
+
+因此应这样理解本次更新：
+
+1. 教师端发现学生设备时看到的 IP。
+2. 学生端 Header 中显示的设备 IP。
+3. 学生端后台事件里回流给前端的设备 IP。
+
+这三者现在已经开始收敛到同一份本机 IP 来源。
+
 ## 最短链路结论
 
-### 链路 A：设备管理页统一下发教师地址
+### 链路 A：学生端本机 IP 获取并展示到 Header
+
+最短链路如下：
+
+1. 学生端前端 `layout/AppHeader.tsx` 挂载后调用 `deviceStore.initTeacherInfo()`。
+2. `deviceStore.initTeacherInfo()` 会先调用 `initDeviceInfo()`。
+3. `initDeviceInfo()` 通过 `services/deviceService.ts` invoke `get_device_runtime_status`。
+4. 学生端 Rust `controllers/device_controller.rs` 接收命令后，调用 `DeviceService::get_runtime_status()`。
+5. `services/device_service.rs` 再调用 `network/device_network.rs::resolve_device_ip()`。
+6. `resolve_device_ip()` 通过 UDP route probing 获取当前出站网卡对应的本机 IPv4。
+7. controller 返回 `DeviceRuntimeStatusDto { ip }`，并同步发出 `device_ip_updated` 事件。
+8. 学生端前端 `deviceStore` 一方面使用 invoke 返回值设置 `ip`，另一方面订阅 `device_ip_updated` 持续刷新 `ip`。
+9. `AppHeader.tsx` 最终从 `deviceStore.ip` 渲染“设备 IP”。
+
+如果只看“学生端 Header 中的设备 IP 从哪里来”，真正业务出口不是 `AppHeader` 本身，也不是 discovery ACK，而是 `apps/student/src-tauri/src/network/device_network.rs` 成功解析出本机 IP，并由 `deviceStore` 写入前端状态。
+
+### 链路 A 的 discovery 一致性补充
+
+最短链路如下：
+
+1. 教师端设备发现时向局域网广播 `DISCOVER_STUDENT_DEVICES`。
+2. 学生端 `network/discovery_listener.rs` 收到广播请求。
+3. `discovery_listener.rs` 现在优先调用 `network/device_network.rs::resolve_device_ip()`。
+4. 若解析成功，则把该 IP 填入 `DiscoverAckPayload.ip`。
+5. 若解析失败，才回退为 `peer.ip().to_string()`。
+6. 同时学生端发出一次 `device_ip_updated` 事件，把当前解析到的 IP 回流给前端。
+
+因此，这条链路的更新点不是“教师端怎么发现学生端”，而是“学生端回包给教师端的 IP 已改为和本机运行态查询共用同一来源”。
+
+### 链路 B：设备管理页统一下发教师地址
 
 最短链路如下：
 
@@ -48,7 +98,7 @@ UDP 监听只出现在学生端的设备发现链路里，对应 apps/student/sr
 
 如果只看“教师端输入的地址最终进入学生端数据库”这个目标，那么真正出口不是 handle_client 本身，而是 apps/student/src-tauri/src/services/teacher_endpoints_service.rs 中 replace_all 的事务提交成功。
 
-### 链路 B：分配页一键连接考生设备并回流真实状态
+### 链路 C：分配页一键连接考生设备并回流真实状态
 
 最短链路如下：
 

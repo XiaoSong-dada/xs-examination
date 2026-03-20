@@ -4,9 +4,9 @@
 
 这份文档只回答一个问题：
 
-教师端在“分配考生”页面点击“连接考生设备”之后，如何把当前考试与考生会话送到学生端，完成本地 `exam_sessions` 预写入，并在学生端 Header 中显示考试标题与学生名称。
+教师端在“分配考生”页面点击“连接考生设备”之后，如何把当前考试与考生会话送到学生端，完成本地 `exam_sessions` 预写入，并在学生端 Header 中显示考试标题、学生名称以及当前设备 IP。
 
-这里不展开“发卷”“开始考试”“答题同步”等后续链路，只聚焦连接阶段本身。
+这里不展开“发卷”“开始考试”“答题同步”等后续链路，只聚焦连接阶段本身，以及 Header 展示依赖的最小运行态链路。
 
 ## 最短链路结论
 
@@ -21,10 +21,11 @@
 7. 学生端再调用 `ExamRuntimeService::upsert_connected_session`，把连接阶段最小会话写入 `exam_sessions`，状态设为 `connected_pending_distribution`。
 8. 学生端随后尝试连接教师端 WebSocket。
 9. 学生端 WebSocket 真正连接成功后，前端通过 `get_current_exam_bundle -> examStore -> AppHeader` 读取刚刚预写入的会话，并显示考试标题、会话状态、学生名称。
+10. 与会话链并行，学生端前端还会通过 `deviceStore -> deviceService -> get_device_runtime_status` 主动查询后端设备 IP，并在 Header 中显示“设备 IP”。
 
 到第 7 步为止，已经完成“连接考生设备 -> 学生端本地会话建立”的最短业务闭环。
 
-到第 9 步为止，已经完成“连接考生设备 -> 学生端 Header 显示会话信息”的最短页面闭环。
+到第 10 步为止，已经完成“连接考生设备 -> 学生端 Header 显示会话信息与设备 IP”的最短页面闭环。
 
 ## 入口到出口的精简调用链
 
@@ -152,13 +153,26 @@ Hook 在：
 
 ## 学生端 Header 为什么会显示信息
 
-学生端前端的读取链如下：
+学生端 Header 现在有两条并行读取链。
+
+### 会话信息链
 
 1. [apps/student/src/App.tsx](apps/student/src/App.tsx) 启动后定时调用 `refreshCurrentExam()`。
 2. [apps/student/src/store/examStore.ts](apps/student/src/store/examStore.ts) 通过 `getCurrentExamBundle()` 拉取最新会话。
 3. [apps/student/src/services/examRuntimeService.ts](apps/student/src/services/examRuntimeService.ts) 调用 Tauri `get_current_exam_bundle`。
 4. [apps/student/src-tauri/src/services/exam_runtime_service.rs](apps/student/src-tauri/src/services/exam_runtime_service.rs) 从本地 `exam_sessions/exam_snapshots` 返回最新 bundle。
 5. [apps/student/src/layout/AppHeader.tsx](apps/student/src/layout/AppHeader.tsx) 使用 `examStore.currentSession` 作为考试标题和学生名称来源。
+
+### 设备 IP 链
+
+1. [apps/student/src/layout/AppHeader.tsx](apps/student/src/layout/AppHeader.tsx) 挂载时调用 `deviceStore.initTeacherInfo()`。
+2. [apps/student/src/store/deviceStore.ts](apps/student/src/store/deviceStore.ts) 会先执行 `initDeviceInfo()`。
+3. `initDeviceInfo()` 通过 [apps/student/src/services/deviceService.ts](apps/student/src/services/deviceService.ts) invoke `get_device_runtime_status`。
+4. 学生端 Rust [apps/student/src-tauri/src/controllers/device_controller.rs](apps/student/src-tauri/src/controllers/device_controller.rs) 调用 [apps/student/src-tauri/src/services/device_service.rs](apps/student/src-tauri/src/services/device_service.rs)。
+5. `device_service.rs` 再调用 [apps/student/src-tauri/src/network/device_network.rs](apps/student/src-tauri/src/network/device_network.rs) 解析本机出站 IPv4。
+6. controller 返回设备 IP，并发出 `device_ip_updated` 事件。
+7. `deviceStore` 用 invoke 返回值和事件 payload 双重刷新 `ip`。
+8. `AppHeader.tsx` 最终从 `deviceStore.ip` 渲染“设备 IP”。
 
 但是，当前 Header 的最终显示口径还有一层限制：
 
@@ -171,7 +185,8 @@ Hook 在：
 
 所以页面出口的准确写法应当是：
 
-学生端 WebSocket 真连接成功后，前端基于本地已写入的 `exam_sessions` 在 Header 中显示考试标题与学生名称。
+1. 学生端 WebSocket 真连接成功后，前端基于本地已写入的 `exam_sessions` 在 Header 中显示考试标题与学生名称。
+2. 学生端设备 IP 则独立来自 `deviceStore -> deviceService -> get_device_runtime_status -> device_controller -> device_service -> device_network` 这条运行态查询链，不依赖 `exam_sessions`，也不依赖 `assigned_ip_addr`。
 
 ## 与发卷链路的边界
 
@@ -181,6 +196,7 @@ Hook 在：
 2. 建立 WebSocket 连接
 3. 预写入最小考试会话
 4. 驱动 Header 展示基础信息
+5. 通过独立设备运行态链路展示当前设备 IP
 
 它不负责：
 
@@ -192,4 +208,4 @@ Hook 在：
 
 ## 一句话总结
 
-教师端分配页点击“连接考生设备”后，经前端 invoke 调用教师端 Rust `connect_student_devices_by_exam_id`，教师端会把教师端地址与当前考试/考生最小会话信息一起封装为 `APPLY_TEACHER_ENDPOINTS`，通过 TCP 逐台发送到学生端控制端口；学生端 `control_server` 收到后先落库 `teacher_endpoints`，再由 `ExamRuntimeService::upsert_connected_session` 预写入 `exam_sessions`，随后主动连接教师端 WebSocket；当 WebSocket 真连接成功后，学生端前端再通过 `get_current_exam_bundle -> examStore -> AppHeader` 显示考试标题与学生名称。
+教师端分配页点击“连接考生设备”后，经前端 invoke 调用教师端 Rust `connect_student_devices_by_exam_id`，教师端会把教师端地址与当前考试/考生最小会话信息一起封装为 `APPLY_TEACHER_ENDPOINTS`，通过 TCP 逐台发送到学生端控制端口；学生端 `control_server` 收到后先落库 `teacher_endpoints`，再由 `ExamRuntimeService::upsert_connected_session` 预写入 `exam_sessions`，随后主动连接教师端 WebSocket；当 WebSocket 真连接成功后，学生端前端再通过 `get_current_exam_bundle -> examStore -> AppHeader` 显示考试标题与学生名称，同时通过 `deviceStore -> deviceService -> get_device_runtime_status` 这条独立链路显示当前设备 IP。
