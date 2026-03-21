@@ -18,10 +18,14 @@ pub async fn connect_teacher_ws(
     ws_url: String,
     student_id: String,
 ) -> Result<String, String> {
-    crate::network::ws_client::connect(app_handle, ws_url, student_id)
+    crate::services::ws_reconnect_service::WsReconnectService::start_or_update(
+        app_handle,
+        ws_url,
+        student_id,
+    )
         .await
         .map_err(|e| e.to_string())?;
-    Ok("已连接教师端 WebSocket".to_string())
+    Ok("已开始连接教师端 WebSocket（含自动重试）".to_string())
 }
 
 #[tauri::command]

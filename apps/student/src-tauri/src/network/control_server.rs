@@ -20,6 +20,7 @@ use crate::schemas::teacher_endpoint_schema::{
     TeacherEndpointAppliedEvent, WsConnectionEvent,
 };
 use crate::services::teacher_endpoints_service::TeacherEndpointsService;
+use crate::services::ws_reconnect_service::WsReconnectService;
 
 
 
@@ -140,8 +141,7 @@ async fn handle_client(app_handle: tauri::AppHandle, mut stream: TcpStream) -> R
 
     if success {
         if let Some(master_url) = &connected_master {
-            // 骨架阶段：收到配置后立刻尝试连接主教师端，不做重试策略。
-            let connect_result = crate::network::ws_client::connect(
+            let connect_result = WsReconnectService::start_or_update(
                 app_handle.clone(),
                 master_url.clone(),
                 req.payload.student_id.clone(),

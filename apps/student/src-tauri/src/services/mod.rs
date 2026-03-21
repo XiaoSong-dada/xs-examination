@@ -5,3 +5,4 @@
 pub mod teacher_endpoints_service;
 pub mod exam_runtime_service;
 pub mod device_service;
+pub mod ws_reconnect_service;
