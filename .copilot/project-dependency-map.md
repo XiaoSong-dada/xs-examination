@@ -165,7 +165,7 @@ graph TD
 - `pages/DeviceAssign` 的“连接考生设备”现在不再只是把教师端地址下发到学生端，还会经同一条控制链路把当前考试与考生的最小会话字段送到学生端，由学生端预写入 `exam_sessions`。
 - `pages/Monitor` 现在不再只按 `ip_addr` 推导在线状态，而是通过 `hooks/useMonitor.ts` 复用同一套状态查询链路，确保与分配页口径一致。
 - `pages/ExamManage` 现在不仅负责考试状态展示，还通过 `hooks/useExamManage.ts` 调用 `services/studentService.ts` 触发“分发试卷”与“开始考试”两条链路；其中“分发试卷”已形成教师端前端 -> 教师端 Rust -> 学生端控制服务 -> 学生端本地落库的完整闭环。
-- 学生端 Header 里的考试标题、状态与学生名称现在通过 `get_current_exam_bundle -> examStore -> AppHeader` 读取本地 `exam_sessions`，但最终展示时机仍受学生端 `ws_connected` 状态控制。
+- 学生端 Header 里的考试标题与学生名称现在通过 `get_current_exam_bundle -> examStore -> AppHeader` 读取本地 `exam_sessions` 并在启动恢复后直接展示；教师端连接状态与连接中闪烁图标则通过 `get_teacher_runtime_status / ws_connected / ws_disconnected -> deviceStore -> AppHeader` 独立表达，不再作为业务会话信息的展示门控。
 - `pages/ExamManage` 的“设备状态”现已不再基于 `ip_addr` 做二态推断，而是复用 `get_student_device_connection_status_by_exam_id` 返回的四态结果，并按 5 秒轮询刷新，和 `DeviceAssign`、`Monitor` 保持一致口径。
 - 这意味着教师端前端里与“实时连接状态”最相关的页面已从单一的 `Monitor` 扩展为 `DeviceAssign + Monitor + ExamManage` 共用一套 `services -> teacher-rust` 调用路径。
 
@@ -413,7 +413,8 @@ graph TD
 - 若任务是“前端状态变更”，优先看 `store/examStore.ts`、`store/deviceStore.ts`。
 - 若任务是“设备 IP 获取 / Header 设备 IP 显示异常”，优先看 `layout/AppHeader.tsx`、`store/deviceStore.ts`、`services/deviceService.ts`。
 - 若任务是“为什么学生端显示未收到试卷 / 已收到试卷”，优先看 `App.tsx`、`store/examStore.ts`、`services/examRuntimeService.ts`。
-- 若任务是“为什么连接成功后 Header 没显示学生名称或考试标题”，优先看 `layout/AppHeader.tsx`、`store/examStore.ts`、`store/deviceStore.ts`，并确认当前 `teacherConnectionStatus` 是否已进入 `connected`。
+- 若任务是“为什么启动后 Header 没恢复考试标题或学生名称”，优先看 `layout/AppHeader.tsx`、`store/examStore.ts`、`commands.rs`、`services/exam_runtime_service.rs`。
+- 若任务是“为什么连接异常后没有进入重连中/没有闪烁图标”，优先看 `layout/AppHeader.tsx`、`store/deviceStore.ts`、`services/teacherEndpointService.ts`、学生端 `services/ws_reconnect_service.rs` 与 `network/ws_client.rs`。
 
 ### 6.6 说明
 
@@ -433,6 +434,7 @@ graph TD
 
 - `network::discovery_listener::start(...)`
 - `network::control_server::start(...)`
+- `services::ws_reconnect_service::bootstrap_from_local_state(...)`
 
 当前已观测 IPC 命令：
 
@@ -453,7 +455,7 @@ graph TD
 | controllers | `controllers/` | 新增的控制层入口，当前已承载设备运行态命令 |
 | network | `network/` | 发现、控制服务、WS 客户端、本机 IP 获取工具 |
 | network-transport | `network/transport/` | WS connect / writer loop、TCP bind/read/write 的薄封装层 |
-| services | `services/` | 业务服务，现包含教师端地址配置、设备 IP 运行态查询、连接阶段会话预写入、发卷落库与考试运行时读取 |
+| services | `services/` | 业务服务，现包含教师端地址配置、设备 IP 运行态查询、启动恢复、统一自动重连、连接阶段会话预写入、发卷落库与考试运行时读取 |
 | schemas | `schemas/` | 控制协议与网络协议结构 |
 | state | `state.rs` | 应用共享状态 |
 | db | `db/` | 本地数据库与实体 |
@@ -517,6 +519,7 @@ graph TD
 ### 7.5 快速定位
 
 - 若任务是“学生端连接教师端 / 网络握手”，先看 `network/ws_client.rs`。
+- 若任务是“学生端启动后为什么没有自动连接教师端 / 断线后为什么没有持续重连”，先看 `services/ws_reconnect_service.rs`、`state.rs`、`lib.rs`，再回看 `network/ws_client.rs`。
 - 若任务是“学生端接收教师下发地址或控制消息”，先看 `network/control_server.rs`。
 - 若任务是“设备 IP 获取异常 / discovery ACK IP 不准确 / Header 设备 IP 未知”，先看 `controllers/device_controller.rs`、`services/device_service.rs`、`network/device_network.rs`、`network/discovery_listener.rs`。
 - 若任务是“学生端 WS connect / writer loop 或 TCP bind/read/write 细节”，先看 `network/transport/`。
@@ -616,8 +619,9 @@ graph TD
 9. “连接考生设备”已不再只是教师地址下发链路：教师端 `DeviceAssign/useDeviceAssign/studentService` -> 教师端 `student_exam_controller/student_control_client` -> 学生端 `control_server/teacher_endpoints_service/exam_runtime_service::upsert_connected_session` -> 学生端前端 `get_current_exam_bundle/examStore/AppHeader`，形成“连接即预写入会话”的完整闭环。
 10. “分发试卷”仍是一条独立的跨端控制链路：教师端 `ExamManage/useExamManage/studentService` -> 教师端 `student_exam_controller/student_exam_service/student_control_client` -> 学生端 `control_server/exam_runtime_service::upsert_distribution` -> 学生端前端 `get_current_exam_bundle/examStore/App.tsx`。
 11. 这两条链路共用学生端控制端口，因此端口配置必须一致；连接阶段与发卷阶段若使用不同控制端口，会出现“已连接但发卷 0/x”或 `10061` 的典型断点。
-12. 学生端 Header 当前已经不再依赖 `deviceStore.assignedStudent` 承载业务会话数据，而是通过 `examStore.currentSession` 读取考试标题、状态和学生名称，并以 `ws_connected` 作为最终展示门控。
+12. 学生端 Header 当前已经不再依赖 `deviceStore.assignedStudent` 承载业务会话数据，而是通过 `examStore.currentSession` 读取考试标题和学生名称；教师端连接状态改为独立显示，不再作为业务会话信息的展示门控。
 13. 第二阶段已在学生端 `upsert_distribution` 中落地按 `exam_id` 的保护逻辑：命中同 `exam_id` 时保留本地 `exam_sessions` 基础信息，只更新或写入 `exam_snapshots`。
-14. 考试管理页现已把原先基于 `ip_addr` 的“已连接/未连接”二态展示替换为统一四态“设备状态”，并按 5 秒轮询复用同一状态查询链路，因此三个页面的状态口径已经完成前端统一。
-15. 2026-03-20 起，两端 Rust 网络层新增 `network/transport` 子层：教师端 `ws_server/student_control_client` 与学生端 `ws_client/control_server` 不再直接承载全部底层收发细节，而是把 WebSocket 握手/写循环与 TCP request-reply 的 connect、timeout、read/write 边界逐步下沉到 transport 薄封装。
-16. 2026-03-21 起，学生端设备 IP 已形成独立调用链：前端 `deviceStore/deviceService` 通过 Tauri `get_device_runtime_status` 调用学生端 `controllers/device_controller.rs -> services/device_service.rs -> network/device_network.rs` 获取本机 IP；`discovery_listener.rs` 也复用同一工具生成 ACK 中的设备 IP，并通过 `device_ip_updated` 事件回流前端 Header。
+14. 2026-03-22 起，学生端启动后会通过 `lib.rs -> ws_reconnect_service::bootstrap_from_local_state` 读取本地 `teacher_endpoints(is_master)` 与最近 `exam_sessions.student_id` 自动恢复连接目标；后续由 `ws_reconnect_service` 统一承接首次连接失败重试、断线后持续重连以及目标 endpoint 切换。
+15. 考试管理页现已把原先基于 `ip_addr` 的“已连接/未连接”二态展示替换为统一四态“设备状态”，并按 5 秒轮询复用同一状态查询链路，因此三个页面的状态口径已经完成前端统一。
+16. 2026-03-20 起，两端 Rust 网络层新增 `network/transport` 子层：教师端 `ws_server/student_control_client` 与学生端 `ws_client/control_server` 不再直接承载全部底层收发细节，而是把 WebSocket 握手/写循环与 TCP request-reply 的 connect、timeout、read/write 边界逐步下沉到 transport 薄封装。
+17. 2026-03-21 起，学生端设备 IP 已形成独立调用链：前端 `deviceStore/deviceService` 通过 Tauri `get_device_runtime_status` 调用学生端 `controllers/device_controller.rs -> services/device_service.rs -> network/device_network.rs` 获取本机 IP；`discovery_listener.rs` 也复用同一工具生成 ACK 中的设备 IP，并通过 `device_ip_updated` 事件回流前端 Header。

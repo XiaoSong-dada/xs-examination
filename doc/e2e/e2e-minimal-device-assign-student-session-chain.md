@@ -302,18 +302,18 @@ Hook 实现在：
 
 因此，头部里考试标题、状态和学生名称，已经改为走 `exam_sessions -> get_current_exam_bundle -> examStore -> AppHeader` 这条链。
 
-### 头部中与连接成功口径相关的部分
+### 头部中与连接状态相关的部分
 
-当前代码里，Header 会在学生端 WebSocket 真正连接教师端成功后，基于 `currentSession` 显示：
+当前代码里，Header 已把“业务会话信息”和“连接运行态”拆开：
 
-1. 考试标题
-2. 会话状态
-3. 学生名称
+1. 考试标题与学生名称，直接基于 `currentSession` 显示，用于启动恢复和本地缓存展示。
+2. 连接状态图标与文案则继续基于 `teacherConnectionStatus` 显示，用于表达已连接、重连中或未连接。
+3. 当自动重连运行时，`connecting` 会显示 `link.png` 的闪烁图标。
 
 因此，若把“学生端头部内容”当作出口，需要精确写成：
 
-1. 头部中的考试标题、状态与学生名称，已经能通过 `exam_sessions -> get_current_exam_bundle -> examStore -> AppHeader` 体现出来。
-2. 这些业务信息的最终展示时机仍受 `deviceStore.teacherConnectionStatus === connected` 控制，也就是以 WebSocket 真连接成功为准。
+1. 头部中的考试标题与学生名称，已经能通过 `exam_sessions -> get_current_exam_bundle -> examStore -> AppHeader` 直接体现出来。
+2. 教师端连接是否成功、是否处于重连中，则通过 `deviceStore.teacherConnectionStatus` 独立体现，不再作为业务会话信息的展示门控。
 
 ## 最短 e2e 链路图
 
@@ -338,7 +338,7 @@ Hook 实现在：
 7. 学生端 [apps/student/src-tauri/src/network/ws_client.rs](apps/student/src-tauri/src/network/ws_client.rs) 建立 WebSocket 连接
 8. 学生端 [apps/student/src-tauri/src/services/exam_runtime_service.rs](apps/student/src-tauri/src/services/exam_runtime_service.rs) `get_current_exam_bundle`
 9. 学生端 [apps/student/src/store/examStore.ts](apps/student/src/store/examStore.ts) 更新 `currentExam/currentSession`
-10. 学生端 [apps/student/src/layout/AppHeader.tsx](apps/student/src/layout/AppHeader.tsx) 在 ws connected 后显示考试标题、状态与学生名称
+10. 学生端 [apps/student/src/layout/AppHeader.tsx](apps/student/src/layout/AppHeader.tsx) 直接恢复考试标题与学生名称，同时独立显示连接状态与重连中的闪烁图标
 
 ### C. 基于分配结果的发卷快照链
 
@@ -356,7 +356,7 @@ Hook 实现在：
 
 1. 教师端“随机分配考生”的最短出口是教师端 `student_exams.ip_addr` 更新成功。
 2. 学生端 `exam_sessions` 的最短入口不是“随机分配考生”，而是后续“连接考生设备”的 `APPLY_TEACHER_ENDPOINTS`。
-3. 学生端头部里，考试标题、状态和学生名称现在都已接到 `examStore.currentSession`，但最终展示仍以 WebSocket 真连接成功为准。
+3. 学生端头部里，考试标题和学生名称现在都已接到 `examStore.currentSession`，而教师端连接状态与重连运行态则独立由 `deviceStore.teacherConnectionStatus` 表达。
 
 所以这条业务现在应描述成：
 
