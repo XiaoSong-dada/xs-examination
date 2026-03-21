@@ -21,6 +21,41 @@ fn now_ms() -> i64 {
         .unwrap_or_default()
 }
 
+fn cleanup_connection_state(app_handle: &tauri::AppHandle) {
+    let state = app_handle.state::<crate::state::AppState>();
+    state.set_ws_connected(false);
+    state.clear_ws_sender();
+    state.clear_ws_endpoint();
+}
+
+fn emit_disconnected(
+    app_handle: &tauri::AppHandle,
+    endpoint: String,
+    message: impl Into<String>,
+) {
+    let _ = app_handle.emit(
+        "ws_disconnected",
+        WsConnectionEvent {
+            endpoint: Some(endpoint),
+            connected: false,
+            message: Some(message.into()),
+        },
+    );
+}
+
+pub fn force_disconnect(app_handle: &tauri::AppHandle, message: &str) {
+    let endpoint = {
+        let state = app_handle.state::<crate::state::AppState>();
+        state.ws_endpoint()
+    };
+
+    cleanup_connection_state(app_handle);
+
+    if let Some(current_endpoint) = endpoint {
+        emit_disconnected(app_handle, current_endpoint, message.to_string());
+    }
+}
+
 pub async fn connect(
     app_handle: tauri::AppHandle,
     ws_url: String,
@@ -72,22 +107,12 @@ pub async fn connect(
             eprintln!("[ws-client] send loop error: {}", err);
         }
 
-        let state = app_for_writer.state::<crate::state::AppState>();
-        state.set_ws_connected(false);
-        state.clear_ws_sender();
-        state.clear_ws_endpoint();
-
-        let _ = app_for_writer.emit(
-            "ws_disconnected",
-            WsConnectionEvent {
-                endpoint: Some(ws_url_for_writer),
-                connected: false,
-                message: Some("连接已关闭".to_string()),
-            },
-        );
+        cleanup_connection_state(&app_for_writer);
+        emit_disconnected(&app_for_writer, ws_url_for_writer, "连接已关闭");
     });
 
     let app_for_reader = app_handle.clone();
+    let ws_url_for_reader = ws_url.clone();
     let student_id_for_reader = student_id.clone();
     tokio::spawn(async move {
         while let Some(next_message) = reader.next().await {
@@ -106,6 +131,12 @@ pub async fn connect(
                 Ok(_) => {}
                 Err(err) => {
                     eprintln!("[ws-client] recv error: {}", err);
+                    cleanup_connection_state(&app_for_reader);
+                    emit_disconnected(
+                        &app_for_reader,
+                        ws_url_for_reader.clone(),
+                        format!("接收失败: {}", err),
+                    );
                     break;
                 }
             }
@@ -119,6 +150,8 @@ pub async fn connect(
             .ok_or_else(|| anyhow::anyhow!("连接建立后未找到发送通道"))?
     };
 
+    let app_for_heartbeat = app_handle.clone();
+    let ws_url_for_heartbeat = ws_url.clone();
     tokio::spawn(async move {
         loop {
             let heartbeat = build_message(
@@ -132,6 +165,8 @@ pub async fn connect(
             match encode_message(&heartbeat) {
                 Ok(text) => {
                     if heartbeat_tx.send(text).is_err() {
+                        cleanup_connection_state(&app_for_heartbeat);
+                        emit_disconnected(&app_for_heartbeat, ws_url_for_heartbeat.clone(), "心跳发送失败");
                         break;
                     }
                 }

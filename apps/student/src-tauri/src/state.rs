@@ -3,6 +3,7 @@ use sea_orm::DatabaseConnection;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use tauri::AppHandle;
+use tokio::task::JoinHandle;
 use tokio::sync::mpsc::UnboundedSender;
 
 pub struct AppState {
@@ -10,6 +11,8 @@ pub struct AppState {
     ws_sender: Mutex<Option<UnboundedSender<String>>>,
     ws_connected: AtomicBool,
     ws_endpoint: Mutex<Option<String>>,
+    reconnect_target: Mutex<Option<(String, String)>>,
+    reconnect_task: Mutex<Option<JoinHandle<()>>>,
 }
 
 impl AppState {
@@ -20,6 +23,8 @@ impl AppState {
             ws_sender: Mutex::new(None),
             ws_connected: AtomicBool::new(false),
             ws_endpoint: Mutex::new(None),
+            reconnect_target: Mutex::new(None),
+            reconnect_task: Mutex::new(None),
         })
     }
 
@@ -67,5 +72,27 @@ impl AppState {
 
     pub fn ws_connected(&self) -> bool {
         self.ws_connected.load(Ordering::SeqCst)
+    }
+
+    pub fn set_reconnect_target(&self, endpoint: String, student_id: String) {
+        if let Ok(mut guard) = self.reconnect_target.lock() {
+            *guard = Some((endpoint, student_id));
+        }
+    }
+
+    pub fn reconnect_target(&self) -> Option<(String, String)> {
+        self.reconnect_target
+            .lock()
+            .ok()
+            .and_then(|guard| guard.as_ref().cloned())
+    }
+
+    pub fn replace_reconnect_task(&self, next_task: JoinHandle<()>) {
+        if let Ok(mut guard) = self.reconnect_task.lock() {
+            if let Some(existing) = guard.take() {
+                existing.abort();
+            }
+            *guard = Some(next_task);
+        }
     }
 }

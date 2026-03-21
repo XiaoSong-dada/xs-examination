@@ -299,20 +299,20 @@ apps/student/src-tauri/src/services/teacher_endpoints_service.rs 的 replace_all
 handle_client 在 replace_all 成功后，还会做一个附加动作：
 
 1. 从 endpoints 中取出主教师端地址。
-2. 调用 apps/student/src-tauri/src/network/ws_client.rs 的 connect。
-3. `connect` 底层通过 `network/transport/ws_transport.rs::connect_ws(...)` 建立 WebSocket 连接。
-4. 后续发送通道和写循环由 `network/transport/ws_transport.rs::run_text_writer_loop(...)` 承接。
-5. 让学生端立刻尝试连接主教师端 WebSocket。
+2. 调用 apps/student/src-tauri/src/services/ws_reconnect_service.rs 的统一重连入口，而不是只做一次性 `connect`。
+3. `ws_reconnect_service` 会记录当前目标 endpoint 与 `student_id`，并在启动恢复、首次失败重试、断线后重连、目标切换时复用同一套逻辑。
+4. 真正建连时仍由 apps/student/src-tauri/src/network/ws_client.rs 调用 `network/transport/ws_transport.rs::connect_ws(...)` 建立 WebSocket 连接。
+5. 后续发送通道和写循环由 `network/transport/ws_transport.rs::run_text_writer_loop(...)` 承接。
 
 这一步是“落库成功后的后续动作”，不是“地址入库”的出口。
 
-另外，当前实现里这次 WebSocket 连接失败不会反向影响本次 ACK 的 success 字段，因为 success 只取决于 replace_all 是否成功。
+另外，当前实现里这次 `APPLY_TEACHER_ENDPOINTS` 的 ACK success 仍只取决于地址与会话落库是否成功，不直接取决于该次 WebSocket 是否马上连上；若首次建连失败，后续会交给 `ws_reconnect_service` 持续重试。
 
 对分配页链路再补充一点：
 
 1. 分配页里“连接请求已下发：成功 X/Y”现在说明 TCP 下发、学生端地址落库，以及连接阶段会话预写入成功。
 2. UI 最终是否显示“正常”，还取决于学生端后续是否真的连上教师端 WebSocket，并且教师端是否按正确的 `student_id` 聚合到了心跳。
-3. 学生端 Header 是否展示考试标题和学生名称，也取决于 WebSocket 是否真的连接成功，因为当前前端展示口径仍以 `teacherConnectionStatus === connected` 为准。
+3. 学生端 Header 的考试标题和学生名称现在会按本地 `currentSession` 直接恢复；连接状态是否正常、是否处于重连中，则由独立的连接状态图标表达。
 
 ## 相关数据表
 

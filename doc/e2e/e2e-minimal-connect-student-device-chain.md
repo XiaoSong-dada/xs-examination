@@ -174,19 +174,16 @@ Hook 在：
 7. `deviceStore` 用 invoke 返回值和事件 payload 双重刷新 `ip`。
 8. `AppHeader.tsx` 最终从 `deviceStore.ip` 渲染“设备 IP”。
 
-但是，当前 Header 的最终显示口径还有一层限制：
+现在 Header 的展示口径已经拆成两条独立链：
 
-只有当：
-
-1. `currentSession` 已存在
-2. `deviceStore.teacherConnectionStatus === connected`
-
-时，Header 才会把考试标题、状态和学生名称作为“连接成功后的最终展示态”显示出来。
+1. 只要 `currentSession` 已存在，Header 就会直接显示考试标题与学生名称，用于启动恢复与本地缓存展示。
+2. 教师端连接状态图标与文案则独立来自 `teacherConnectionStatus`，并在 `connecting` 时显示 `link.png` 闪烁图标，用于表达自动重连中的运行态。
 
 所以页面出口的准确写法应当是：
 
-1. 学生端 WebSocket 真连接成功后，前端基于本地已写入的 `exam_sessions` 在 Header 中显示考试标题与学生名称。
-2. 学生端设备 IP 则独立来自 `deviceStore -> deviceService -> get_device_runtime_status -> device_controller -> device_service -> device_network` 这条运行态查询链，不依赖 `exam_sessions`，也不依赖 `assigned_ip_addr`。
+1. 学生端本地 `exam_sessions` 一旦已可被 `get_current_exam_bundle` 读取，前端就能在 Header 中恢复考试标题与学生名称。
+2. 学生端 WebSocket 是否已连接、是否正在重连，则独立通过 `deviceStore -> teacherEndpointService -> ws_connected/ws_disconnected` 这条运行态链表达。
+3. 学生端设备 IP 则独立来自 `deviceStore -> deviceService -> get_device_runtime_status -> device_controller -> device_service -> device_network` 这条运行态查询链，不依赖 `exam_sessions`，也不依赖 `assigned_ip_addr`。
 
 ## 与发卷链路的边界
 
@@ -195,7 +192,7 @@ Hook 在：
 1. 下发教师端地址
 2. 建立 WebSocket 连接
 3. 预写入最小考试会话
-4. 驱动 Header 展示基础信息
+4. 驱动 Header 恢复基础信息
 5. 通过独立设备运行态链路展示当前设备 IP
 
 它不负责：

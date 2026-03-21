@@ -54,7 +54,11 @@ export const useDeviceStore = create<DeviceStore>((set, get) => ({
     try {
       const runtime = await getTeacherRuntimeStatus();
       get().setTeacherMasterEndpoint(runtime.endpoint ?? null);
-      get().setTeacherConnectionStatus(runtime.connectionStatus ?? "unknown");
+      if ((runtime.endpoint ?? null) && runtime.connectionStatus !== "connected") {
+        get().setTeacherConnectionStatus("connecting");
+      } else {
+        get().setTeacherConnectionStatus(runtime.connectionStatus ?? "unknown");
+      }
     } catch (_err) {
       get().setTeacherConnectionStatus("unknown");
     }
@@ -76,7 +80,8 @@ export const useDeviceStore = create<DeviceStore>((set, get) => ({
       });
 
       await onWsDisconnected(() => {
-        get().setTeacherConnectionStatus("disconnected");
+        const hasEndpoint = Boolean(get().teacherMasterEndpoint);
+        get().setTeacherConnectionStatus(hasEndpoint ? "connecting" : "disconnected");
       });
     } catch (_err) {
       hasSubscribedTeacherEvents = false;

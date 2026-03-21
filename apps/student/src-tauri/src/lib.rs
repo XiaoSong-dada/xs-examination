@@ -34,6 +34,13 @@ pub fn run() {
                 }
             });
 
+            let reconnect_handle = app_handle.clone();
+            tauri::async_runtime::spawn(async move {
+                if let Err(err) = crate::services::ws_reconnect_service::WsReconnectService::bootstrap_from_local_state(reconnect_handle).await {
+                    eprintln!("[bootstrap] reconnect bootstrap failed: {}", err);
+                }
+            });
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

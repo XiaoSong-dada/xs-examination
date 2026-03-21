@@ -1,9 +1,21 @@
 import { useDeviceStore } from "@/store/deviceStore";
 import { useExamStore } from "@/store/examStore";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import linkIcon from "@/assets/icons/link.png";
 import linkSuccessIcon from "@/assets/icons/link_success.png";
 import linkFailIcon from "@/assets/icons/link_fail.png";
+
+function endpointToHost(endpoint: string | null): string {
+  if (!endpoint) {
+    return "未配置";
+  }
+
+  try {
+    return new URL(endpoint).hostname || endpoint;
+  } catch (_err) {
+    return endpoint;
+  }
+}
 
 export default function AppHeader() {
   const currentSession = useExamStore((s) => s.currentSession);
@@ -33,12 +45,27 @@ export default function AppHeader() {
   const imgIcon = teacherStatusIconMap[teacherStatus] ?? linkFailIcon;
   const statusText = teacherStatusTextMap[teacherStatus] ?? teacherStatusTextMap.unknown;
   const isConnecting = teacherStatus === "connecting";
-  const isConnected = teacherStatus === "connected";
+  const [blinkVisible, setBlinkVisible] = useState(true);
 
-  const examText = isConnected && currentSession
+  useEffect(() => {
+    if (!isConnecting) {
+      setBlinkVisible(true);
+      return;
+    }
+
+    const timer = window.setInterval(() => {
+      setBlinkVisible((prev) => !prev);
+    }, 800);
+
+    return () => {
+      window.clearInterval(timer);
+    };
+  }, [isConnecting]);
+
+  const examText = currentSession
     ? `${currentSession.examTitle ?? "未命名考试"}`
     : "未加入考试";
-  const studentText = isConnected && currentSession
+  const studentText = currentSession
     ? `${currentSession.studentNo} ${currentSession.studentName}`
     : "未分配学生";
 
@@ -50,12 +77,12 @@ export default function AppHeader() {
           <span>
             {examText}
           </span>
-          <span>{'教师端 IP: '  + (teacherEndpoint ? teacherEndpoint.slice(5,15) : "未配置")}</span>
+          <span>{`教师端 IP: ${endpointToHost(teacherEndpoint)}`}</span>
 
           <img
               src={imgIcon}
               alt={`连接状态:${statusText}`}
-              className={`h-5 w-5 ${isConnecting ? "animate-pulse" : ""}`}
+              className={`h-5 w-5 -mt-1 transition-opacity ${isConnecting && !blinkVisible ? "opacity-0" : "opacity-100"}`}
             />
           <span>
           </span>
