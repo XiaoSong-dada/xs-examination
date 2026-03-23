@@ -174,24 +174,76 @@ async fn persist_answer_sync(
     let state = app_handle.state::<crate::state::AppState>();
 
     let se = Alias::new("se");
-    let student_exam_query = Query::select()
-        .expr_as(Expr::col((se.clone(), Alias::new("id"))), Alias::new("id"))
-        .from_as(Alias::new("student_exams"), se.clone())
-        .and_where(Expr::cust(format!(
-            "exam_id = '{}'",
-            sql_escape(&payload.exam_id)
-        )))
-        .and_where(Expr::cust(format!(
-            "student_id = '{}'",
-            sql_escape(&payload.student_id)
-        )))
-        .limit(1)
-        .to_owned();
+    let mut student_exam_id: Option<String> = None;
+    let mut resolved_student_id: Option<String> = None;
 
-    let Some(student_exam_row) = state.db.query_one(&student_exam_query).await? else {
-        return Ok(());
-    };
-    let student_exam_id: String = student_exam_row.try_get("", "id")?;
+    if let Some(session_id) = payload.session_id.as_deref() {
+        if !session_id.trim().is_empty() {
+            let student_exam_by_session_query = Query::select()
+                .expr_as(Expr::col((se.clone(), Alias::new("id"))), Alias::new("id"))
+                .expr_as(
+                    Expr::col((se.clone(), Alias::new("student_id"))),
+                    Alias::new("student_id"),
+                )
+                .from_as(Alias::new("student_exams"), se.clone())
+                .and_where(Expr::cust(format!("id = '{}'", sql_escape(session_id))))
+                .and_where(Expr::cust(format!(
+                    "exam_id = '{}'",
+                    sql_escape(&payload.exam_id)
+                )))
+                .limit(1)
+                .to_owned();
+
+            if let Some(row) = state.db.query_one(&student_exam_by_session_query).await? {
+                student_exam_id = Some(row.try_get("", "id")?);
+                resolved_student_id = Some(row.try_get("", "student_id")?);
+            }
+        }
+    }
+
+    if student_exam_id.is_none() {
+        let student_exam_query = Query::select()
+            .expr_as(Expr::col((se.clone(), Alias::new("id"))), Alias::new("id"))
+            .expr_as(
+                Expr::col((se.clone(), Alias::new("student_id"))),
+                Alias::new("student_id"),
+            )
+            .from_as(Alias::new("student_exams"), se.clone())
+            .and_where(Expr::cust(format!(
+                "exam_id = '{}'",
+                sql_escape(&payload.exam_id)
+            )))
+            .and_where(Expr::cust(format!(
+                "student_id = '{}'",
+                sql_escape(&payload.student_id)
+            )))
+            .limit(1)
+            .to_owned();
+
+        if let Some(row) = state.db.query_one(&student_exam_query).await? {
+            student_exam_id = Some(row.try_get("", "id")?);
+            resolved_student_id = Some(row.try_get("", "student_id")?);
+        }
+    }
+
+    let student_exam_id = student_exam_id.ok_or_else(|| {
+        anyhow::anyhow!(
+            "未找到 student_exams 记录（exam_id={}, student_id={}, session_id={:?}）",
+            payload.exam_id,
+            payload.student_id,
+            payload.session_id
+        )
+    })?;
+    let resolved_student_id = resolved_student_id.unwrap_or_else(|| payload.student_id.clone());
+
+    if resolved_student_id != payload.student_id {
+        println!(
+            "[ws-server] answer sync student_id remapped payload_student_id={} resolved_student_id={} session_id={:?}",
+            payload.student_id,
+            resolved_student_id,
+            payload.session_id
+        );
+    }
 
     let q = Alias::new("q");
     let total_questions_query = Query::select()
@@ -209,11 +261,11 @@ async fn persist_answer_sync(
 
     for item in &payload.answers {
         let revision = std::cmp::max(item.revision.unwrap_or(1), 1);
-        let answer_updated_at = item.answer_updated_at.unwrap_or(received_at);
+        let answer_updated_at = item.answer_updated_at.unwrap_or(0);
 
         let escaped_id = sql_escape(&uuid::Uuid::new_v4().to_string());
         let escaped_student_exam_id = sql_escape(&student_exam_id);
-        let escaped_student_id = sql_escape(&payload.student_id);
+        let escaped_student_id = sql_escape(&resolved_student_id);
         let escaped_exam_id = sql_escape(&payload.exam_id);
         let escaped_question_id = sql_escape(&item.question_id);
         let escaped_answer = sql_escape(&item.answer);
@@ -224,9 +276,19 @@ async fn persist_answer_sync(
              ON CONFLICT(student_id, question_id) DO UPDATE SET \
                student_exam_id = excluded.student_exam_id, \
                exam_id = excluded.exam_id, \
-               answer = CASE WHEN excluded.revision >= COALESCE(answer_sheets.revision, 0) THEN excluded.answer ELSE answer_sheets.answer END, \
-               revision = CASE WHEN excluded.revision >= COALESCE(answer_sheets.revision, 0) THEN excluded.revision ELSE answer_sheets.revision END, \
-               answer_updated_at = CASE WHEN excluded.revision >= COALESCE(answer_sheets.revision, 0) THEN excluded.answer_updated_at ELSE answer_sheets.answer_updated_at END, \
+                             answer = CASE \
+                                 WHEN excluded.revision > COALESCE(answer_sheets.revision, 0) THEN excluded.answer \
+                                 WHEN excluded.revision = COALESCE(answer_sheets.revision, 0) \
+                                     AND excluded.answer_updated_at > COALESCE(answer_sheets.answer_updated_at, 0) THEN excluded.answer \
+                                 ELSE answer_sheets.answer END, \
+                             revision = CASE \
+                                 WHEN excluded.revision > COALESCE(answer_sheets.revision, 0) THEN excluded.revision \
+                                 ELSE answer_sheets.revision END, \
+                             answer_updated_at = CASE \
+                                 WHEN excluded.revision > COALESCE(answer_sheets.revision, 0) THEN excluded.answer_updated_at \
+                                 WHEN excluded.revision = COALESCE(answer_sheets.revision, 0) \
+                                     AND excluded.answer_updated_at > COALESCE(answer_sheets.answer_updated_at, 0) THEN excluded.answer_updated_at \
+                                 ELSE answer_sheets.answer_updated_at END, \
                received_at = excluded.received_at, \
                synced_at = excluded.synced_at",
             escaped_id,
@@ -273,7 +335,7 @@ async fn persist_answer_sync(
 
     let escaped_student_exam_id = sql_escape(&student_exam_id);
     let escaped_exam_id = sql_escape(&payload.exam_id);
-    let escaped_student_id = sql_escape(&payload.student_id);
+    let escaped_student_id = sql_escape(&resolved_student_id);
     let last_question_sql = last_question_id
         .map(|value| format!("'{}'", sql_escape(&value)))
         .unwrap_or_else(|| "NULL".to_string());

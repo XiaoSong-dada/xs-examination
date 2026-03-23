@@ -105,22 +105,6 @@ pub async fn connect(
         if let Err(err) = send_full_answer_sync_for_current_session(&app_for_full_sync).await {
             eprintln!("[ws-client] full answer sync after reconnect failed: {}", err);
         }
-
-        match crate::services::exam_runtime_service::ExamRuntimeService::flush_pending_answer_sync(
-            &app_for_full_sync,
-            200,
-        )
-        .await
-        {
-            Ok(count) => {
-                if count > 0 {
-                    println!("[ws-client] flushed pending answer sync count={}", count);
-                }
-            }
-            Err(err) => {
-                eprintln!("[ws-client] flush pending answer sync failed: {}", err);
-            }
-        }
     });
 
     let app_for_writer = app_handle.clone();

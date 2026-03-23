@@ -28,6 +28,7 @@ pub async fn init(app_handle: &AppHandle) -> Result<DatabaseConnection> {
     fs::create_dir_all(&app_data_dir)?;
 
     let db_path = app_data_dir.join(&config.db_name);
+    println!("[db] teacher sqlite path: {}", db_path.display());
 
     let options = SqliteConnectOptions::new()
         .filename(&db_path)
