@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type { CurrentExamBundle, LocalAnswer } from "@/types/main";
 
 export async function getCurrentExamBundle(): Promise<CurrentExamBundle> {
@@ -21,4 +22,12 @@ export async function sendAnswerSync(
 
 export async function getCurrentSessionAnswers(): Promise<LocalAnswer[]> {
   return invoke<LocalAnswer[]>("get_current_session_answers");
+}
+
+export async function onExamStatusChanged(
+  handler: () => void,
+): Promise<UnlistenFn> {
+  return listen("exam_status_changed", () => {
+    handler();
+  });
 }

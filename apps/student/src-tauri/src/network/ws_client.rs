@@ -218,6 +218,10 @@ async fn handle_server_message(
         MessageType::ExamStart => {
             let payload: ExamStartPayload = serde_json::from_value(envelope.payload)?;
             if payload.student_id != local_student_id {
+                println!(
+                    "[ws-client] ignore EXAM_START: payload_student_id={} local_student_id={} exam_id={}",
+                    payload.student_id, local_student_id, payload.exam_id
+                );
                 return Ok(());
             }
 
@@ -231,6 +235,10 @@ async fn handle_server_message(
             .await?;
 
             if updated {
+                println!(
+                    "[ws-client] EXAM_START applied: exam_id={} student_id={}",
+                    payload.exam_id, payload.student_id
+                );
                 let _ = app_handle.emit(
                     "exam_status_changed",
                     json!({
@@ -238,6 +246,11 @@ async fn handle_server_message(
                         "studentId": payload.student_id,
                         "status": "active"
                     }),
+                );
+            } else {
+                println!(
+                    "[ws-client] EXAM_START ignored: no matching local session (exam_id={}, student_id={})",
+                    payload.exam_id, payload.student_id
                 );
             }
         }

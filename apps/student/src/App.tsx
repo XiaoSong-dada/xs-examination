@@ -3,6 +3,7 @@ import ExamPage from "@/pages/Exam";
 import { useEffect } from "react";
 import { useExamStore } from "@/store/examStore";
 import { useDeviceStore } from "@/store/deviceStore";
+import { onExamStatusChanged } from "@/services/examRuntimeService";
 
 function WaitingView({ text }: { text: string }) {
   return (
@@ -30,6 +31,22 @@ function App() {
 
     return () => {
       window.clearInterval(timer);
+    };
+  }, [refreshCurrentExam]);
+
+  useEffect(() => {
+    let unlisten: (() => void) | null = null;
+
+    void onExamStatusChanged(() => {
+      void refreshCurrentExam();
+    }).then((fn) => {
+      unlisten = fn;
+    });
+
+    return () => {
+      if (unlisten) {
+        unlisten();
+      }
     };
   }, [refreshCurrentExam]);
 

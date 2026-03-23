@@ -142,6 +142,7 @@ impl ExamRuntimeService {
 
         let existing_same_exam = exam_sessions::Entity::find()
             .filter(exam_sessions::Column::ExamId.eq(payload.exam_id.clone()))
+            .order_by_desc(exam_sessions::Column::UpdatedAt)
             .one(&state.db)
             .await?;
 
@@ -151,7 +152,15 @@ impl ExamRuntimeService {
             .unwrap_or_else(|| payload.session_id.clone());
 
         // 第二阶段策略：命中同 exam_id 时，保留本地 exam_sessions 基础信息，不做覆盖更新。
-        if existing_same_exam.is_none() {
+        // 但仍需刷新状态与更新时间，确保前端读取到的最新会话可关联快照。
+        if let Some(row) = existing_same_exam {
+            let mut model: exam_sessions::ActiveModel = row.into();
+            model.status = Set("waiting".to_string());
+            model.ends_at = Set(payload.end_time);
+            model.paper_version = Set(payload.paper_version.clone());
+            model.updated_at = Set(ts);
+            model.update(&state.db).await?;
+        } else {
             let existing_session = exam_sessions::Entity::find_by_id(payload.session_id.clone())
                 .one(&state.db)
                 .await?;
@@ -236,17 +245,30 @@ impl ExamRuntimeService {
         end_time: Option<i64>,
     ) -> Result<bool> {
         let state = app_handle.state::<crate::state::AppState>();
-        let row = exam_sessions::Entity::find()
+        let rows = exam_sessions::Entity::find()
             .filter(exam_sessions::Column::ExamId.eq(exam_id.to_string()))
             .filter(exam_sessions::Column::StudentId.eq(student_id.to_string()))
-            .one(&state.db)
+            .order_by_desc(exam_sessions::Column::UpdatedAt)
+            .all(&state.db)
             .await?;
 
-        let Some(current) = row else {
+        if rows.is_empty() {
             return Ok(false);
-        };
+        }
 
-        let mut model: exam_sessions::ActiveModel = current.into();
+        // Prefer a session that already has a snapshot to ensure frontend can enter exam view.
+        let mut selected = rows[0].clone();
+        for row in rows {
+            let snapshot = exam_snapshots::Entity::find_by_id(row.id.clone())
+                .one(&state.db)
+                .await?;
+            if snapshot.is_some() {
+                selected = row;
+                break;
+            }
+        }
+
+        let mut model: exam_sessions::ActiveModel = selected.into();
         model.status = Set("active".to_string());
         model.started_at = Set(Some(start_time));
         model.ends_at = Set(end_time);
@@ -260,42 +282,79 @@ impl ExamRuntimeService {
         app_handle: &tauri::AppHandle,
     ) -> Result<CurrentExamBundleDto> {
         let state = app_handle.state::<crate::state::AppState>();
-        let latest_session = exam_sessions::Entity::find()
+        let sessions = exam_sessions::Entity::find()
             .order_by_desc(exam_sessions::Column::UpdatedAt)
-            .one(&state.db)
+            .all(&state.db)
             .await?;
 
-        let Some(session) = latest_session else {
+        let target_student_id = state
+            .reconnect_target()
+            .map(|(_, student_id)| student_id)
+            .filter(|id| !id.trim().is_empty());
+
+        let candidate_sessions: Vec<exam_sessions::Model> = if let Some(student_id) = target_student_id {
+            let filtered: Vec<exam_sessions::Model> = sessions
+                .iter()
+                .filter(|item| item.student_id == student_id)
+                .cloned()
+                .collect();
+            if filtered.is_empty() {
+                sessions.clone()
+            } else {
+                filtered
+            }
+        } else {
+            sessions.clone()
+        };
+
+        let Some(default_session) = candidate_sessions.first().cloned() else {
             return Ok(CurrentExamBundleDto {
                 session: None,
                 snapshot: None,
             });
         };
 
-        let snapshot = exam_snapshots::Entity::find_by_id(session.id.clone())
-            .one(&state.db)
-            .await?;
+        // Prefer the most recently updated session that already has a snapshot.
+        let mut selected_session = default_session;
+        let mut selected_snapshot: Option<exam_snapshots::Model> = None;
+
+        for session in candidate_sessions {
+            let snapshot = exam_snapshots::Entity::find_by_id(session.id.clone())
+                .one(&state.db)
+                .await?;
+            if snapshot.is_some() {
+                selected_session = session;
+                selected_snapshot = snapshot;
+                break;
+            }
+        }
+
+        if selected_snapshot.is_none() {
+            selected_snapshot = exam_snapshots::Entity::find_by_id(selected_session.id.clone())
+                .one(&state.db)
+                .await?;
+        }
 
         Ok(CurrentExamBundleDto {
             session: Some(ExamSessionDto {
-                id: session.id.clone(),
-                exam_id: session.exam_id,
-                student_id: session.student_id,
-                student_no: session.student_no,
-                student_name: session.student_name,
-                assigned_ip_addr: session.assigned_ip_addr,
-                assigned_device_name: session.assigned_device_name,
-                exam_title: session.exam_title,
-                status: session.status,
-                assignment_status: session.assignment_status,
-                started_at: session.started_at,
-                ends_at: session.ends_at,
-                paper_version: session.paper_version,
-                last_synced_at: session.last_synced_at,
-                created_at: session.created_at,
-                updated_at: session.updated_at,
+                id: selected_session.id.clone(),
+                exam_id: selected_session.exam_id,
+                student_id: selected_session.student_id,
+                student_no: selected_session.student_no,
+                student_name: selected_session.student_name,
+                assigned_ip_addr: selected_session.assigned_ip_addr,
+                assigned_device_name: selected_session.assigned_device_name,
+                exam_title: selected_session.exam_title,
+                status: selected_session.status,
+                assignment_status: selected_session.assignment_status,
+                started_at: selected_session.started_at,
+                ends_at: selected_session.ends_at,
+                paper_version: selected_session.paper_version,
+                last_synced_at: selected_session.last_synced_at,
+                created_at: selected_session.created_at,
+                updated_at: selected_session.updated_at,
             }),
-            snapshot: snapshot.map(|item| ExamSnapshotDto {
+            snapshot: selected_snapshot.map(|item| ExamSnapshotDto {
                 session_id: item.session_id,
                 exam_meta: String::from_utf8_lossy(&item.exam_meta).to_string(),
                 questions_payload: String::from_utf8_lossy(&item.questions_payload).to_string(),
