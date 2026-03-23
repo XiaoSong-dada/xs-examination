@@ -8,8 +8,8 @@ use tokio::time::{sleep, Duration};
 use tokio_tungstenite::tungstenite::Message;
 
 use crate::network::protocol::{
-    ExamStartPayload, HeartbeatPayload, MessageType, WsMessage, build_message,
-    decode_value_message, encode_message,
+    AnswerItem, AnswerSyncAckPayload, ExamStartPayload, HeartbeatPayload, MessageType,
+    WsMessage, build_message, decode_value_message, encode_message,
 };
 use crate::network::transport::ws_transport::{connect_ws, new_text_channel, run_text_writer_loop};
 use crate::schemas::teacher_endpoint_schema::WsConnectionEvent;
@@ -100,6 +100,29 @@ pub async fn connect(
         },
     );
 
+    let app_for_full_sync = app_handle.clone();
+    tokio::spawn(async move {
+        if let Err(err) = send_full_answer_sync_for_current_session(&app_for_full_sync).await {
+            eprintln!("[ws-client] full answer sync after reconnect failed: {}", err);
+        }
+
+        match crate::services::exam_runtime_service::ExamRuntimeService::flush_pending_answer_sync(
+            &app_for_full_sync,
+            200,
+        )
+        .await
+        {
+            Ok(count) => {
+                if count > 0 {
+                    println!("[ws-client] flushed pending answer sync count={}", count);
+                }
+            }
+            Err(err) => {
+                eprintln!("[ws-client] flush pending answer sync failed: {}", err);
+            }
+        }
+    });
+
     let app_for_writer = app_handle.clone();
     let ws_url_for_writer = ws_url.clone();
     tokio::spawn(async move {
@@ -185,26 +208,68 @@ pub async fn connect(
 pub fn build_answer_sync_message(
     exam_id: &str,
     student_id: &str,
-    question_id: &str,
-    answer: &str,
-    revision: i64,
-    answer_updated_at: i64,
+    session_id: Option<&str>,
+    answers: Vec<AnswerItem>,
+    sync_mode: &str,
+    batch_id: Option<&str>,
 ) -> Result<String> {
     let payload = json!({
         "examId": exam_id,
         "studentId": student_id,
-        "answers": [
-            {
-                "questionId": question_id,
-                "answer": answer,
-                "revision": revision,
-                "answerUpdatedAt": answer_updated_at
-            }
-        ]
+        "sessionId": session_id,
+        "syncMode": sync_mode,
+        "batchId": batch_id,
+        "answers": answers,
     });
 
     let message = build_message(MessageType::AnswerSync, now_ms(), payload);
     encode_message(&message)
+}
+
+async fn send_full_answer_sync_for_current_session(app_handle: &tauri::AppHandle) -> Result<()> {
+    let state = app_handle.state::<crate::state::AppState>();
+    let Some(sender) = state.ws_sender() else {
+        return Ok(());
+    };
+
+    let Some((session_id, exam_id, student_id, answers)) =
+        crate::services::exam_runtime_service::ExamRuntimeService::get_current_session_answer_sync_bundle(
+            app_handle,
+        )
+        .await?
+    else {
+        return Ok(());
+    };
+
+    if answers.is_empty() {
+        return Ok(());
+    }
+
+    let payload_answers: Vec<AnswerItem> = answers
+        .into_iter()
+        .map(|item| AnswerItem {
+            question_id: item.question_id,
+            answer: item.answer,
+            revision: Some(item.revision),
+            answer_updated_at: Some(item.updated_at),
+        })
+        .collect();
+
+    let batch_id = uuid::Uuid::new_v4().to_string();
+    let message = build_answer_sync_message(
+        &exam_id,
+        &student_id,
+        Some(&session_id),
+        payload_answers,
+        "full",
+        Some(&batch_id),
+    )?;
+
+    if sender.send(message).is_err() {
+        return Err(anyhow::anyhow!("全量答案同步发送失败：发送通道不可用"));
+    }
+
+    Ok(())
 }
 
 async fn handle_server_message(
@@ -240,6 +305,37 @@ async fn handle_server_message(
                     }),
                 );
             }
+        }
+        MessageType::AnswerSyncAck => {
+            let payload: AnswerSyncAckPayload = serde_json::from_value(envelope.payload)?;
+            if !payload.success {
+                eprintln!(
+                    "[ws-client] answer sync ack failed exam_id={} student_id={} mode={:?} message={}",
+                    payload.exam_id,
+                    payload.student_id,
+                    payload.sync_mode,
+                    payload.message
+                );
+                return Ok(());
+            }
+
+            let synced = crate::services::exam_runtime_service::ExamRuntimeService::mark_answers_synced(
+                &app_handle,
+                &payload.exam_id,
+                &payload.student_id,
+                payload.session_id.as_deref(),
+                &payload.question_ids,
+                payload.acked_at,
+            )
+            .await?;
+
+            println!(
+                "[ws-client] answer sync acked exam_id={} student_id={} mode={:?} synced_count={}",
+                payload.exam_id,
+                payload.student_id,
+                payload.sync_mode,
+                synced
+            );
         }
         _ => {
             println!("[ws-client] recv: {}", text);

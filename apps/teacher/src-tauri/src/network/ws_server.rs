@@ -9,32 +9,12 @@ use tokio_tungstenite::tungstenite::Message;
 
 use crate::core::setting::SETTINGS;
 use crate::network::protocol::{
-    ExamStartPayload, MessageType, WsMessage, build_message, decode_value_message,
-    encode_message,
+    AnswerSyncAckPayload, AnswerSyncPayload, ExamStartPayload, MessageType, WsMessage,
+    build_message, decode_value_message, encode_message,
 };
 use crate::network::transport::ws_transport::{
     accept_ws, new_text_channel, run_text_writer_loop,
 };
-
-#[derive(Debug, Clone, Deserialize)]
-struct AnswerItem {
-    #[serde(rename = "questionId")]
-    question_id: String,
-    answer: String,
-    #[serde(default)]
-    revision: Option<i64>,
-    #[serde(rename = "answerUpdatedAt", default)]
-    answer_updated_at: Option<i64>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-struct AnswerSyncPayload {
-    #[serde(rename = "examId")]
-    exam_id: String,
-    #[serde(rename = "studentId")]
-    student_id: String,
-    answers: Vec<AnswerItem>,
-}
 
 #[derive(Debug, Clone, Deserialize)]
 struct HeartbeatPayload {
@@ -141,7 +121,26 @@ async fn handle_text_message(app_handle: &tauri::AppHandle, peer_id: &str, text:
             state.touch_connection(&payload.student_id, envelope.timestamp);
             state.bind_student_peer(&payload.student_id, peer_id);
 
-            persist_answer_sync(app_handle, &payload, envelope.timestamp).await?;
+            let persist_result = persist_answer_sync(app_handle, &payload, envelope.timestamp).await;
+            let (success, message) = match persist_result {
+                Ok(()) => (true, "答案已落库".to_string()),
+                Err(err) => {
+                    eprintln!(
+                        "[ws-server] persist answer sync failed exam_id={} student_id={} err={}",
+                        payload.exam_id, payload.student_id, err
+                    );
+                    (false, format!("答案落库失败: {}", err))
+                }
+            };
+
+            send_answer_sync_ack(
+                app_handle,
+                peer_id,
+                &payload,
+                envelope.timestamp,
+                success,
+                message,
+            )?;
 
             if let Some(first) = payload.answers.first() {
                 println!(
@@ -301,6 +300,41 @@ async fn persist_answer_sync(
     );
 
     state.db.execute_unprepared(&upsert_progress_sql).await?;
+
+    Ok(())
+}
+
+fn send_answer_sync_ack(
+    app_handle: &tauri::AppHandle,
+    peer_id: &str,
+    payload: &AnswerSyncPayload,
+    ts: i64,
+    success: bool,
+    message: String,
+) -> Result<()> {
+    let ack_payload = AnswerSyncAckPayload {
+        exam_id: payload.exam_id.clone(),
+        student_id: payload.student_id.clone(),
+        session_id: payload.session_id.clone(),
+        sync_mode: payload.sync_mode.clone(),
+        batch_id: payload.batch_id.clone(),
+        success,
+        message,
+        acked_at: ts,
+        question_ids: payload
+            .answers
+            .iter()
+            .map(|item| item.question_id.clone())
+            .collect(),
+    };
+
+    let envelope = build_message(MessageType::AnswerSyncAck, ts, ack_payload);
+    let text = encode_message(&envelope)?;
+    let state = app_handle.state::<crate::state::AppState>();
+    let delivered = state.send_ws_text_to_peer(peer_id, text);
+    if !delivered {
+        return Err(anyhow::anyhow!("ACK 发送失败：目标连接不可用"));
+    }
 
     Ok(())
 }

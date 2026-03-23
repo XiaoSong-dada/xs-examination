@@ -10,6 +10,7 @@ pub enum MessageType {
     ForceSubmit,
     Heartbeat,
     AnswerSync,
+    AnswerSyncAck,
     Submit,
     StatusUpdate,
     CheatAlert,
@@ -51,6 +52,10 @@ pub struct AnswerItem {
     #[serde(rename = "questionId")]
     pub question_id: String,
     pub answer: String,
+    #[serde(default)]
+    pub revision: Option<i64>,
+    #[serde(rename = "answerUpdatedAt", default)]
+    pub answer_updated_at: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -59,7 +64,33 @@ pub struct AnswerSyncPayload {
     pub exam_id: String,
     #[serde(rename = "studentId")]
     pub student_id: String,
+    #[serde(rename = "sessionId", default)]
+    pub session_id: Option<String>,
+    #[serde(rename = "syncMode", default)]
+    pub sync_mode: Option<String>,
+    #[serde(rename = "batchId", default)]
+    pub batch_id: Option<String>,
     pub answers: Vec<AnswerItem>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AnswerSyncAckPayload {
+    #[serde(rename = "examId")]
+    pub exam_id: String,
+    #[serde(rename = "studentId")]
+    pub student_id: String,
+    #[serde(rename = "sessionId", default)]
+    pub session_id: Option<String>,
+    #[serde(rename = "syncMode", default)]
+    pub sync_mode: Option<String>,
+    #[serde(rename = "batchId", default)]
+    pub batch_id: Option<String>,
+    pub success: bool,
+    pub message: String,
+    #[serde(rename = "ackedAt")]
+    pub acked_at: i64,
+    #[serde(rename = "questionIds", default)]
+    pub question_ids: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

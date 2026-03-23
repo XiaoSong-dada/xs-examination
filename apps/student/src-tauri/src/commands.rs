@@ -1,6 +1,7 @@
 use tauri::State;
 use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, QueryOrder, Set};
 use serde_json::json;
+use crate::network::protocol::AnswerItem;
 
 use crate::schemas::teacher_endpoint_schema;
 use crate::schemas::exam_runtime_schema;
@@ -130,13 +131,20 @@ pub async fn send_answer_sync(
         None => return Ok("答案已保存到本地，等待连接恢复后同步".to_string()),
     };
 
+    let payload_answers = vec![AnswerItem {
+        question_id: question_id.clone(),
+        answer: answer.clone(),
+        revision: Some(revision),
+        answer_updated_at: Some(ts),
+    }];
+
     let payload = crate::network::ws_client::build_answer_sync_message(
         &exam_id,
         &student_id,
-        &question_id,
-        &answer,
-        revision,
-        ts,
+        Some(&session_id),
+        payload_answers,
+        "incremental",
+        None,
     )
     .map_err(|e| e.to_string())?;
 
@@ -144,29 +152,15 @@ pub async fn send_answer_sync(
         return Ok("答案已保存到本地，发送通道关闭，稍后重试".to_string());
     }
 
-    let latest_answer = local_answers::Entity::find()
-        .filter(local_answers::Column::SessionId.eq(session_id.clone()))
-        .filter(local_answers::Column::QuestionId.eq(question_id.clone()))
-        .one(&state.db)
-        .await
-        .map_err(|e| e.to_string())?;
-
-    if let Some(row) = latest_answer {
-        let mut model: local_answers::ActiveModel = row.into();
-        model.sync_status = Set("synced".to_string());
-        model.last_synced_at = Set(Some(ts));
-        model.update(&state.db).await.map_err(|e| e.to_string())?;
-    }
-
     let mut outbox_active: sync_outbox::ActiveModel = inserted_outbox.into();
-    outbox_active.status = Set("synced".to_string());
+    outbox_active.status = Set("sent".to_string());
     outbox_active.updated_at = Set(ts);
     outbox_active
         .update(&state.db)
         .await
         .map_err(|e| e.to_string())?;
 
-    Ok("答案已保存并同步发送".to_string())
+    Ok("答案已保存并发送，等待教师端确认".to_string())
 }
 
 #[tauri::command]
