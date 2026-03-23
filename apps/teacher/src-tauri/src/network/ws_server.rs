@@ -22,6 +22,12 @@ struct HeartbeatPayload {
     student_id: String,
 }
 
+struct PersistAnswerSyncResult {
+    success_question_ids: Vec<String>,
+    failed_question_ids: Vec<String>,
+    first_error: Option<String>,
+}
+
 pub async fn start_ws_server(app_handle: tauri::AppHandle) -> Result<()> {
     let bind_addr = format!("0.0.0.0:{}", SETTINGS.ws_server_port);
     let listener = TcpListener::bind(&bind_addr)
@@ -121,16 +127,20 @@ async fn handle_text_message(app_handle: &tauri::AppHandle, peer_id: &str, text:
             state.touch_connection(&payload.student_id, envelope.timestamp);
             state.bind_student_peer(&payload.student_id, peer_id);
 
-            let persist_result = persist_answer_sync(app_handle, &payload, envelope.timestamp).await;
-            let (success, message) = match persist_result {
-                Ok(()) => (true, "答案已落库".to_string()),
-                Err(err) => {
-                    eprintln!(
-                        "[ws-server] persist answer sync failed exam_id={} student_id={} err={}",
-                        payload.exam_id, payload.student_id, err
-                    );
-                    (false, format!("答案落库失败: {}", err))
-                }
+            let persist_result = persist_answer_sync(app_handle, &payload, envelope.timestamp).await?;
+            let success_count = persist_result.success_question_ids.len() as i64;
+            let failed_count = persist_result.failed_question_ids.len() as i64;
+            let success = failed_count == 0;
+            let message = if failed_count == 0 {
+                format!("答案已落库（{}/{}）", success_count, answer_count)
+            } else {
+                let reason = persist_result
+                    .first_error
+                    .unwrap_or_else(|| "部分题目落库失败".to_string());
+                format!(
+                    "答案部分落库（成功 {}/{}，失败 {}）：{}",
+                    success_count, answer_count, failed_count, reason
+                )
             };
 
             send_answer_sync_ack(
@@ -140,6 +150,8 @@ async fn handle_text_message(app_handle: &tauri::AppHandle, peer_id: &str, text:
                 envelope.timestamp,
                 success,
                 message,
+                persist_result.success_question_ids,
+                persist_result.failed_question_ids,
             )?;
 
             if let Some(first) = payload.answers.first() {
@@ -170,7 +182,7 @@ async fn persist_answer_sync(
     app_handle: &tauri::AppHandle,
     payload: &AnswerSyncPayload,
     received_at: i64,
-) -> Result<()> {
+) -> Result<PersistAnswerSyncResult> {
     let state = app_handle.state::<crate::state::AppState>();
 
     let se = Alias::new("se");
@@ -259,6 +271,10 @@ async fn persist_answer_sync(
         None => 0,
     };
 
+    let mut success_question_ids: Vec<String> = Vec::new();
+    let mut failed_question_ids: Vec<String> = Vec::new();
+    let mut first_error: Option<String> = None;
+
     for item in &payload.answers {
         let revision = std::cmp::max(item.revision.unwrap_or(1), 1);
         let answer_updated_at = item.answer_updated_at.unwrap_or(0);
@@ -304,7 +320,71 @@ async fn persist_answer_sync(
             received_at,
         );
 
-        state.db.execute_unprepared(&upsert_sql).await?;
+        match state.db.execute_unprepared(&upsert_sql).await {
+            Ok(_) => {
+                success_question_ids.push(item.question_id.clone());
+            }
+            Err(err) => {
+                if first_error.is_none() {
+                    first_error = Some(err.to_string());
+                }
+                failed_question_ids.push(item.question_id.clone());
+                eprintln!(
+                    "[ws-server] answer upsert failed exam_id={} student_exam_id={} question_id={} err={}",
+                    payload.exam_id,
+                    student_exam_id,
+                    item.question_id,
+                    err
+                );
+                continue;
+            }
+        }
+
+        let verify_alias = Alias::new("ans_verify");
+        let verify_query = Query::select()
+            .expr_as(
+                Expr::col((verify_alias.clone(), Alias::new("answer"))),
+                Alias::new("answer"),
+            )
+            .expr_as(
+                Expr::col((verify_alias.clone(), Alias::new("revision"))),
+                Alias::new("revision"),
+            )
+            .from_as(Alias::new("answer_sheets"), verify_alias.clone())
+            .and_where(Expr::cust(format!(
+                "student_exam_id = '{}'",
+                sql_escape(&student_exam_id)
+            )))
+            .and_where(Expr::cust(format!(
+                "question_id = '{}'",
+                sql_escape(&item.question_id)
+            )))
+            .limit(1)
+            .to_owned();
+
+        if let Some(row) = state.db.query_one(&verify_query).await? {
+            let persisted_answer: Option<String> = row.try_get("", "answer").ok();
+            let persisted_revision: i64 = row.try_get("", "revision").unwrap_or(0);
+
+            println!(
+                "[ws-server] answer_sync upsert verify exam_id={} student_exam_id={} question_id={} payload_answer={} persisted_answer={:?} payload_revision={} persisted_revision={}",
+                payload.exam_id,
+                student_exam_id,
+                item.question_id,
+                item.answer,
+                persisted_answer,
+                revision,
+                persisted_revision
+            );
+        }
+    }
+
+    if success_question_ids.is_empty() {
+        return Ok(PersistAnswerSyncResult {
+            success_question_ids,
+            failed_question_ids,
+            first_error,
+        });
     }
 
     let ans = Alias::new("ans");
@@ -362,9 +442,29 @@ async fn persist_answer_sync(
         received_at,
     );
 
-    state.db.execute_unprepared(&upsert_progress_sql).await?;
+    if let Err(err) = state.db.execute_unprepared(&upsert_progress_sql).await {
+        if first_error.is_none() {
+            first_error = Some(err.to_string());
+        }
+        for qid in success_question_ids.iter() {
+            if !failed_question_ids.contains(qid) {
+                failed_question_ids.push(qid.clone());
+            }
+        }
+        success_question_ids.clear();
+        eprintln!(
+            "[ws-server] progress upsert failed exam_id={} student_exam_id={} err={}",
+            payload.exam_id,
+            student_exam_id,
+            err
+        );
+    }
 
-    Ok(())
+    Ok(PersistAnswerSyncResult {
+        success_question_ids,
+        failed_question_ids,
+        first_error,
+    })
 }
 
 fn send_answer_sync_ack(
@@ -374,6 +474,8 @@ fn send_answer_sync_ack(
     ts: i64,
     success: bool,
     message: String,
+    success_question_ids: Vec<String>,
+    failed_question_ids: Vec<String>,
 ) -> Result<()> {
     let ack_payload = AnswerSyncAckPayload {
         exam_id: payload.exam_id.clone(),
@@ -384,11 +486,10 @@ fn send_answer_sync_ack(
         success,
         message,
         acked_at: ts,
-        question_ids: payload
-            .answers
-            .iter()
-            .map(|item| item.question_id.clone())
-            .collect(),
+        question_ids: success_question_ids.clone(),
+        failed_question_ids: failed_question_ids.clone(),
+        success_count: success_question_ids.len() as i64,
+        failed_count: failed_question_ids.len() as i64,
     };
 
     let envelope = build_message(MessageType::AnswerSyncAck, ts, ack_payload);

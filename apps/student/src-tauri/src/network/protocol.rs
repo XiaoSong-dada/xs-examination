@@ -91,6 +91,12 @@ pub struct AnswerSyncAckPayload {
     pub acked_at: i64,
     #[serde(rename = "questionIds", default)]
     pub question_ids: Vec<String>,
+    #[serde(rename = "failedQuestionIds", default)]
+    pub failed_question_ids: Vec<String>,
+    #[serde(rename = "successCount", default)]
+    pub success_count: i64,
+    #[serde(rename = "failedCount", default)]
+    pub failed_count: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

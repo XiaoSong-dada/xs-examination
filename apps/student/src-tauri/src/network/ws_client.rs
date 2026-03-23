@@ -331,45 +331,58 @@ async fn handle_server_message(
         }
         MessageType::AnswerSyncAck => {
             let payload: AnswerSyncAckPayload = serde_json::from_value(envelope.payload)?;
-            if !payload.success {
-                let failed_count = crate::services::exam_runtime_service::ExamRuntimeService::mark_answers_failed(
+            let synced = if payload.question_ids.is_empty() {
+                0
+            } else {
+                crate::services::exam_runtime_service::ExamRuntimeService::mark_answers_synced(
                     &app_handle,
                     &payload.exam_id,
                     &payload.student_id,
                     payload.session_id.as_deref(),
                     &payload.question_ids,
                     payload.acked_at,
+                )
+                .await?
+            };
+
+            let failed = if payload.failed_question_ids.is_empty() {
+                0
+            } else {
+                crate::services::exam_runtime_service::ExamRuntimeService::mark_answers_failed(
+                    &app_handle,
+                    &payload.exam_id,
+                    &payload.student_id,
+                    payload.session_id.as_deref(),
+                    &payload.failed_question_ids,
+                    payload.acked_at,
                     &payload.message,
                 )
-                .await?;
+                .await?
+            };
 
+            if !payload.success || failed > 0 {
                 eprintln!(
-                    "[ws-client] answer sync ack failed exam_id={} student_id={} mode={:?} failed_count={} message={}",
+                    "[ws-client] answer sync ack partial/failed exam_id={} student_id={} mode={:?} ack_success={} ack_success_count={} ack_failed_count={} local_synced={} local_failed={} message={}",
                     payload.exam_id,
                     payload.student_id,
                     payload.sync_mode,
-                    failed_count,
+                    payload.success,
+                    payload.success_count,
+                    payload.failed_count,
+                    synced,
+                    failed,
                     payload.message
                 );
                 return Ok(());
             }
 
-            let synced = crate::services::exam_runtime_service::ExamRuntimeService::mark_answers_synced(
-                &app_handle,
-                &payload.exam_id,
-                &payload.student_id,
-                payload.session_id.as_deref(),
-                &payload.question_ids,
-                payload.acked_at,
-            )
-            .await?;
-
             println!(
-                "[ws-client] answer sync acked exam_id={} student_id={} mode={:?} synced_count={}",
+                "[ws-client] answer sync acked exam_id={} student_id={} mode={:?} synced_count={} failed_count={}",
                 payload.exam_id,
                 payload.student_id,
                 payload.sync_mode,
-                synced
+                synced,
+                failed
             );
         }
         _ => {
