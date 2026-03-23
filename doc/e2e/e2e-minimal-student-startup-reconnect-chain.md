@@ -12,6 +12,7 @@
 2. 自动连接
 3. 首连失败重试
 4. 已连接后断线重连
+5. 学生端重启后的本地答案恢复
 
 ## 最短链路结论
 
@@ -27,10 +28,13 @@
 8. 若后续 writer 出错、reader 出错或 heartbeat 发送失败，`ws_client` 会统一清理连接状态并再次发出 `ws_disconnected` 事件。
 9. 重连服务检测到当前目标仍存在且当前未连接，会再次进入下一轮重试，直到恢复连接。
 10. 与连接链并行，前端 `App.tsx -> examStore` 会继续读取最近 `exam_sessions`，`AppHeader.tsx` 会直接恢复考试标题和学生名称；`deviceStore` 则根据 `get_teacher_runtime_status` 与 `ws` 事件显示 `connected / connecting / disconnected`，并在 `connecting` 时显示闪烁的 `link.png`。
+11. 当考试页面挂载且本地已有试卷时，`pages/Exam/index.tsx` 会再通过 `getCurrentSessionAnswers -> get_current_session_answers -> ExamRuntimeService::get_current_session_answers` 读取 `local_answers`，并把已保存答案回填到 `selectedAnswers`，恢复学生端页面上的已答状态。
 
 到第 5 步为止，已经形成“启动即自动连接”的最短后台闭环。
 
 到第 10 步为止，已经形成“启动恢复头部信息 + 后台自动重连状态可见”的最短页面闭环。
+
+到第 11 步为止，已经形成“启动恢复会话 + 恢复页面已答状态”的最短答题恢复闭环。
 
 ## 入口到出口的精简调用链
 
@@ -145,10 +149,19 @@
 4. 若已有 endpoint 但当前未连接，则状态进入 `connecting`
 5. [apps/student/src/layout/AppHeader.tsx](apps/student/src/layout/AppHeader.tsx) 在 `connecting` 时显示 `link.png`，并以 0.5 秒显隐切换方式闪烁
 
+#### 本地答案恢复链
+
+1. [apps/student/src/pages/Exam/index.tsx](apps/student/src/pages/Exam/index.tsx) 在 `currentSession` 与 `questions` 已就绪后触发 `getCurrentSessionAnswers()`。
+2. [apps/student/src/services/examRuntimeService.ts](apps/student/src/services/examRuntimeService.ts) 通过 Tauri invoke 调用 `get_current_session_answers`。
+3. [apps/student/src-tauri/src/commands.rs](apps/student/src-tauri/src/commands.rs) 把请求转给 `ExamRuntimeService::get_current_session_answers`。
+4. [apps/student/src-tauri/src/services/exam_runtime_service.rs](apps/student/src-tauri/src/services/exam_runtime_service.rs) 从最近一条 `exam_sessions` 对应的 `local_answers` 读取每题最新答案。
+5. `ExamPage` 按 `option.key / option.text / 选项序号` 把本地答案映射回当前题目的选项下标，并恢复 `selectedAnswers`。
+
 因此，当前页面出口应分成两层理解：
 
 1. 头部业务信息出口：本地 `exam_sessions` 已成功恢复
 2. 头部连接状态出口：自动重连是否正在进行、是否已连上教师端
+3. 页面已答状态出口：本地 `local_answers` 已成功回填到答题页选中态
 
 ## 与控制服务链路的关系
 
@@ -195,6 +208,13 @@
 3. Header 从 `connected` 切到 `connecting`
 4. 自动重试，教师端恢复后再次切回 `connected`
 
+### E. 学生端重启后的本地答案恢复
+
+1. 学生端在作答过程中已把答案写入 `local_answers`
+2. 关闭并重新打开学生端
+3. Header 先恢复考试标题、学生名称和教师端连接状态
+4. 进入答题页后，之前已选择的选项会被自动回填显示
+
 ## 一句话总结
 
-学生端现在已经形成完整的“启动恢复 + 自动连接 + 断线后重连”最短链路：应用启动时由 `lib.rs` 触发 `ws_reconnect_service::bootstrap_from_local_state`，从本地 `teacher_endpoints(is_master)` 与最近 `exam_sessions.student_id` 恢复连接目标，再由 `ws_reconnect_service` 统一驱动 `ws_client` 持续建连；连接失败或后续断线时，`ws_client` 统一清理状态并发出断线事件，重连服务继续按固定间隔重试；前端 Header 则一边直接恢复本地考试与学生信息，一边独立显示教师端连接状态和重连中的闪烁图标。
+学生端现在已经形成完整的“启动恢复 + 自动连接 + 断线后重连 + 本地答案恢复”最短链路：应用启动时由 `lib.rs` 触发 `ws_reconnect_service::bootstrap_from_local_state`，从本地 `teacher_endpoints(is_master)` 与最近 `exam_sessions.student_id` 恢复连接目标，再由 `ws_reconnect_service` 统一驱动 `ws_client` 持续建连；连接失败或后续断线时，`ws_client` 统一清理状态并发出断线事件，重连服务继续按固定间隔重试；前端一边通过 `App.tsx/examStore/AppHeader` 恢复本地考试与学生信息并显示连接状态，一边通过 `pages/Exam/index.tsx -> getCurrentSessionAnswers -> get_current_session_answers` 把 `local_answers` 回填到答题页的选中态。
