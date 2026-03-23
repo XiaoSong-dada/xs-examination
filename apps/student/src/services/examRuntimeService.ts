@@ -12,9 +12,9 @@ export async function sendAnswerSync(
   answer: string,
 ): Promise<string> {
   return invoke<string>("send_answer_sync", {
-    exam_id: examId,
-    student_id: studentId,
-    question_id: questionId,
+    examId,
+    studentId,
+    questionId,
     answer,
   });
 }
