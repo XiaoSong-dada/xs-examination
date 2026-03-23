@@ -49,6 +49,8 @@ impl WsReconnectService {
             crate::network::ws_client::force_disconnect(&app_handle, "连接目标已切换，准备重连");
         }
 
+        // Same endpoint but different student_id also requires reconnect,
+        // otherwise heartbeat and server-side student mapping may stay stale.
         if state.ws_connected()
             && old_endpoint
                 .as_deref()

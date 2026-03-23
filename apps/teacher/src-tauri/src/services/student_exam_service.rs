@@ -226,15 +226,20 @@ pub async fn start_exam_by_exam_id(
     for item in assignments {
         if item.ip_addr.as_deref().map(|v| !v.trim().is_empty()).unwrap_or(false) {
             total_targets += 1;
+            let target_student_id = item.student_id.clone();
             let payload = ExamStartPayload {
                 exam_id: exam_id.clone(),
-                student_id: item.student_id,
+                student_id: target_student_id.clone(),
                 start_time: now,
                 end_time: exam.end_time,
                 timestamp: now,
             };
 
             let delivered = crate::network::ws_server::send_exam_start_to_student(app_handle, payload)?;
+            println!(
+                "[start-exam] exam_id={} student_id={} delivered={}",
+                exam_id, target_student_id, delivered
+            );
             if delivered {
                 sent_count += 1;
             }
