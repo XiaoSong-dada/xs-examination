@@ -4,7 +4,7 @@ use anyhow::Result;
 use sea_orm::{
     ConnectOptions, Database, DatabaseConnection,
 };
-use sqlx::{sqlite::SqliteConnectOptions, SqlitePool};
+use sqlx::{sqlite::SqliteConnectOptions, Row, SqlitePool};
 use tauri::{AppHandle, Manager};
 
 use crate::config::AppConfig;
@@ -59,6 +59,25 @@ pub async fn init(app_handle: &AppHandle) -> Result<DatabaseConnection> {
     sqlx::migrate!()
         .run(&pool)
         .await?;
+
+    let migration_versions = sqlx::query("SELECT version FROM _sqlx_migrations ORDER BY version")
+        .fetch_all(&pool)
+        .await?
+        .into_iter()
+        .map(|row| row.get::<i64, _>("version"))
+        .collect::<Vec<_>>();
+    println!("[db] teacher applied migrations: {:?}", migration_versions);
+
+    let answer_sheet_fk_parents = sqlx::query("PRAGMA foreign_key_list(answer_sheets)")
+        .fetch_all(&pool)
+        .await?
+        .into_iter()
+        .map(|row| row.get::<String, _>("table"))
+        .collect::<Vec<_>>();
+    println!(
+        "[db] answer_sheets foreign key parents: {:?}",
+        answer_sheet_fk_parents
+    );
 
     drop(pool);
 
