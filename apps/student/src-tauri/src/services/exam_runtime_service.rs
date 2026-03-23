@@ -94,13 +94,24 @@ impl ExamRuntimeService {
         app_handle: &tauri::AppHandle,
     ) -> Result<Option<(String, String, String, Vec<LocalAnswerDto>)>> {
         let state = app_handle.state::<crate::state::AppState>();
-        let latest_session = exam_sessions::Entity::find()
+        let sessions = exam_sessions::Entity::find()
             .order_by_desc(exam_sessions::Column::UpdatedAt)
-            .one(&state.db)
+            .all(&state.db)
             .await?;
 
-        let Some(session) = latest_session else {
+        if sessions.is_empty() {
             return Ok(None);
+        }
+
+        let target_student_id = state.reconnect_target().map(|(_, sid)| sid);
+        let session = if let Some(target_sid) = target_student_id {
+            sessions
+                .iter()
+                .find(|item| item.student_id == target_sid)
+                .cloned()
+                .unwrap_or_else(|| sessions[0].clone())
+        } else {
+            sessions[0].clone()
         };
 
         let answers = local_answers::Entity::find()

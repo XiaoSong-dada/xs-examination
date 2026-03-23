@@ -256,6 +256,14 @@ async fn send_full_answer_sync_for_current_session(app_handle: &tauri::AppHandle
         return Ok(());
     };
 
+    if !state.should_send_full_sync(&session_id, now_ms(), 5_000) {
+        println!(
+            "[ws-client] skip duplicated full answer sync session_id={} within cooldown",
+            session_id
+        );
+        return Ok(());
+    }
+
     if answers.is_empty() {
         return Ok(());
     }

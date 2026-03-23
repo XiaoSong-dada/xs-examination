@@ -13,6 +13,7 @@ pub struct AppState {
     ws_endpoint: Mutex<Option<String>>,
     reconnect_target: Mutex<Option<(String, String)>>,
     reconnect_task: Mutex<Option<JoinHandle<()>>>,
+    last_full_sync_marker: Mutex<Option<(String, i64)>>,
 }
 
 impl AppState {
@@ -25,6 +26,7 @@ impl AppState {
             ws_endpoint: Mutex::new(None),
             reconnect_target: Mutex::new(None),
             reconnect_task: Mutex::new(None),
+            last_full_sync_marker: Mutex::new(None),
         })
     }
 
@@ -94,5 +96,20 @@ impl AppState {
             }
             *guard = Some(next_task);
         }
+    }
+
+    pub fn should_send_full_sync(&self, session_id: &str, now_ms: i64, cooldown_ms: i64) -> bool {
+        if let Ok(mut guard) = self.last_full_sync_marker.lock() {
+            if let Some((last_session_id, last_ts)) = guard.as_ref() {
+                if last_session_id == session_id && now_ms - *last_ts < cooldown_ms {
+                    return false;
+                }
+            }
+
+            *guard = Some((session_id.to_string(), now_ms));
+            return true;
+        }
+
+        true
     }
 }

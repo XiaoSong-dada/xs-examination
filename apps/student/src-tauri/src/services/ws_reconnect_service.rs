@@ -40,12 +40,24 @@ impl WsReconnectService {
 
         let state = app_handle.state::<crate::state::AppState>();
         let old_endpoint = state.ws_endpoint();
+        let old_target = state.reconnect_target();
         if state.ws_connected()
             && old_endpoint
                 .as_deref()
                 .is_some_and(|existing| existing != endpoint.as_str())
         {
             crate::network::ws_client::force_disconnect(&app_handle, "连接目标已切换，准备重连");
+        }
+
+        if state.ws_connected()
+            && old_endpoint
+                .as_deref()
+                .is_some_and(|existing| existing == endpoint.as_str())
+            && old_target
+                .as_ref()
+                .is_some_and(|(_, old_student_id)| old_student_id != &student_id)
+        {
+            crate::network::ws_client::force_disconnect(&app_handle, "考生标识已切换，准备重连");
         }
         state.set_reconnect_target(endpoint.clone(), student_id.clone());
 
