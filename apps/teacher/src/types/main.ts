@@ -105,6 +105,9 @@ export interface StudentDeviceConnectionStatusItem {
   connection_status: DeviceConnectionStatus;
   last_heartbeat_at?: number;
   has_heartbeat_seen: boolean;
+  answered_count: number;
+  total_questions: number;
+  progress_percent: number;
 }
 
 export interface DistributeExamPapersResultItem {

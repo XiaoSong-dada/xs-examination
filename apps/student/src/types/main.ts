@@ -39,6 +39,13 @@ export interface CurrentExamBundle {
   snapshot: ExamSnapshot | null;
 }
 
+export interface LocalAnswer {
+  questionId: string;
+  answer: string;
+  revision: number;
+  updatedAt: number;
+}
+
 export interface RuntimeQuestion {
   id: string;
   seq: number;

@@ -38,3 +38,12 @@ pub struct CurrentExamBundleDto {
     pub session: Option<ExamSessionDto>,
     pub snapshot: Option<ExamSnapshotDto>,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LocalAnswerDto {
+    pub question_id: String,
+    pub answer: String,
+    pub revision: i64,
+    pub updated_at: i64,
+}

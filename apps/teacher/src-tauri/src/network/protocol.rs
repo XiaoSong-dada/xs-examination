@@ -10,6 +10,7 @@ pub enum MessageType {
     ForceSubmit,
     Heartbeat,
     AnswerSync,
+    AnswerSyncAck,
     Submit,
     StatusUpdate,
     CheatAlert,
@@ -51,4 +52,56 @@ pub struct ExamStartPayload {
     #[serde(rename = "endTime")]
     pub end_time: Option<i64>,
     pub timestamp: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AnswerItem {
+    #[serde(rename = "questionId")]
+    pub question_id: String,
+    pub answer: String,
+    #[serde(default)]
+    pub revision: Option<i64>,
+    #[serde(rename = "answerUpdatedAt", default)]
+    pub answer_updated_at: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AnswerSyncPayload {
+    #[serde(rename = "examId")]
+    pub exam_id: String,
+    #[serde(rename = "studentId")]
+    pub student_id: String,
+    #[serde(rename = "sessionId", default)]
+    pub session_id: Option<String>,
+    #[serde(rename = "syncMode", default)]
+    pub sync_mode: Option<String>,
+    #[serde(rename = "batchId", default)]
+    pub batch_id: Option<String>,
+    pub answers: Vec<AnswerItem>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AnswerSyncAckPayload {
+    #[serde(rename = "examId")]
+    pub exam_id: String,
+    #[serde(rename = "studentId")]
+    pub student_id: String,
+    #[serde(rename = "sessionId", default)]
+    pub session_id: Option<String>,
+    #[serde(rename = "syncMode", default)]
+    pub sync_mode: Option<String>,
+    #[serde(rename = "batchId", default)]
+    pub batch_id: Option<String>,
+    pub success: bool,
+    pub message: String,
+    #[serde(rename = "ackedAt")]
+    pub acked_at: i64,
+    #[serde(rename = "questionIds", default)]
+    pub question_ids: Vec<String>,
+    #[serde(rename = "failedQuestionIds", default)]
+    pub failed_question_ids: Vec<String>,
+    #[serde(rename = "successCount", default)]
+    pub success_count: i64,
+    #[serde(rename = "failedCount", default)]
+    pub failed_count: i64,
 }

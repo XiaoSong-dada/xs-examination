@@ -66,7 +66,7 @@ export function useMonitor() {
         name: student.student_name,
         deviceIp: student.ip_addr ?? "-",
         linkStatus: student.connection_status,
-        answerProgress: 0,
+        answerProgress: student.progress_percent ?? 0,
       })),
     [students],
   );

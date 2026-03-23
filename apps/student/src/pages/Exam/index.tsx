@@ -1,16 +1,51 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Button } from "antd";
 
 import AnswerList from "../../components/ExamContent/AnswerList";
 import ImageList from "../../components/ExamContent/ImageList";
 import { useExamStore } from "@/store/examStore";
+import { getCurrentSessionAnswers, sendAnswerSync } from "@/services/examRuntimeService";
 
 export default function ExamPage() {
   const questions = useExamStore((s) => s.questions);
+  const currentSession = useExamStore((s) => s.currentSession);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [selectedAnswers, setSelectedAnswers] = useState<Record<string, number>>(
     {},
   );
+
+  useEffect(() => {
+    if (!currentSession || questions.length === 0) {
+      return;
+    }
+
+    void getCurrentSessionAnswers()
+      .then((answers) => {
+        const restored: Record<string, number> = {};
+        for (const item of answers) {
+          const question = questions.find((q) => q.id === item.questionId);
+          if (!question) {
+            continue;
+          }
+
+          const optionIndex = question.options.findIndex(
+            (option, index) =>
+              option.key === item.answer ||
+              option.text === item.answer ||
+              `${index + 1}` === item.answer,
+          );
+
+          if (optionIndex >= 0) {
+            restored[question.id] = optionIndex;
+          }
+        }
+
+        setSelectedAnswers(restored);
+      })
+      .catch((error) => {
+        console.error("[ExamPage] 读取本地答案失败", error);
+      });
+  }, [currentSession, questions]);
 
   if (questions.length === 0) {
     return (
@@ -27,6 +62,22 @@ export default function ExamPage() {
       ...prev,
       [currentQuestion.id]: optionIndex,
     }));
+
+    const option = currentQuestion.options[optionIndex];
+    const answerValue = option?.key || `${optionIndex + 1}`;
+
+    if (!currentSession) {
+      return;
+    }
+
+    void sendAnswerSync(
+      currentSession.examId,
+      currentSession.studentId,
+      currentQuestion.id,
+      answerValue,
+    ).catch((error) => {
+      console.error("[ExamPage] 答案同步失败", error);
+    });
   };
 
   return (
