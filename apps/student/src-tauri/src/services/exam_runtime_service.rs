@@ -4,20 +4,47 @@ use sea_orm::{
 };
 use tauri::Manager;
 
-use crate::db::entities::{exam_sessions, exam_snapshots};
+use crate::db::entities::{exam_sessions, exam_snapshots, local_answers};
 use crate::schemas::control_protocol::{ApplyTeacherEndpointsPayload, DistributeExamPaperPayload};
-use crate::schemas::exam_runtime_schema::{CurrentExamBundleDto, ExamSessionDto, ExamSnapshotDto};
+use crate::schemas::exam_runtime_schema::{CurrentExamBundleDto, ExamSessionDto, ExamSnapshotDto, LocalAnswerDto};
+use crate::utils::datetime::now_ms;
 
-fn now_ms() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis() as i64)
-        .unwrap_or_default()
-}
 
 pub struct ExamRuntimeService;
 
 impl ExamRuntimeService {
+    pub async fn get_current_session_answers(
+        app_handle: &tauri::AppHandle,
+    ) -> Result<Vec<LocalAnswerDto>> {
+        let state = app_handle.state::<crate::state::AppState>();
+        let latest_session = exam_sessions::Entity::find()
+            .order_by_desc(exam_sessions::Column::UpdatedAt)
+            .one(&state.db)
+            .await?;
+
+        let Some(session) = latest_session else {
+            return Ok(Vec::new());
+        };
+
+        let rows = local_answers::Entity::find()
+            .filter(local_answers::Column::SessionId.eq(session.id.clone()))
+            .order_by_desc(local_answers::Column::UpdatedAt)
+            .all(&state.db)
+            .await?;
+
+        Ok(rows
+            .into_iter()
+            .filter_map(|row| {
+                row.answer.map(|answer| LocalAnswerDto {
+                    question_id: row.question_id,
+                    answer,
+                    revision: row.revision,
+                    updated_at: row.updated_at,
+                })
+            })
+            .collect())
+    }
+
     pub async fn upsert_connected_session(
         app_handle: &tauri::AppHandle,
         payload: &ApplyTeacherEndpointsPayload,

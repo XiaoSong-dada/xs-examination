@@ -1,10 +1,10 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Button } from "antd";
 
 import AnswerList from "../../components/ExamContent/AnswerList";
 import ImageList from "../../components/ExamContent/ImageList";
 import { useExamStore } from "@/store/examStore";
-import { sendAnswerSync } from "@/services/examRuntimeService";
+import { getCurrentSessionAnswers, sendAnswerSync } from "@/services/examRuntimeService";
 
 export default function ExamPage() {
   const questions = useExamStore((s) => s.questions);
@@ -13,6 +13,39 @@ export default function ExamPage() {
   const [selectedAnswers, setSelectedAnswers] = useState<Record<string, number>>(
     {},
   );
+
+  useEffect(() => {
+    if (!currentSession || questions.length === 0) {
+      return;
+    }
+
+    void getCurrentSessionAnswers()
+      .then((answers) => {
+        const restored: Record<string, number> = {};
+        for (const item of answers) {
+          const question = questions.find((q) => q.id === item.questionId);
+          if (!question) {
+            continue;
+          }
+
+          const optionIndex = question.options.findIndex(
+            (option, index) =>
+              option.key === item.answer ||
+              option.text === item.answer ||
+              `${index + 1}` === item.answer,
+          );
+
+          if (optionIndex >= 0) {
+            restored[question.id] = optionIndex;
+          }
+        }
+
+        setSelectedAnswers(restored);
+      })
+      .catch((error) => {
+        console.error("[ExamPage] 读取本地答案失败", error);
+      });
+  }, [currentSession, questions]);
 
   if (questions.length === 0) {
     return (

@@ -204,3 +204,12 @@ pub async fn get_current_exam_bundle(
         .await
         .map_err(|e| e.to_string())
 }
+
+#[tauri::command]
+pub async fn get_current_session_answers(
+    app_handle: tauri::AppHandle,
+) -> Result<Vec<exam_runtime_schema::LocalAnswerDto>, String> {
+    ExamRuntimeService::get_current_session_answers(&app_handle)
+        .await
+        .map_err(|e| e.to_string())
+}
