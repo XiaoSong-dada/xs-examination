@@ -215,7 +215,7 @@ export function DevicesPage() {
     }
 
     pushForm.setFieldsValue({
-      controlPort: 18889,
+      controlPort: 38888,
       masterEndpoint: "",
       slaveEndpoint: "",
       remark: "教师端统一下发",

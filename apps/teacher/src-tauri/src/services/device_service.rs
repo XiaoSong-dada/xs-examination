@@ -95,7 +95,7 @@ pub async fn push_teacher_endpoints_to_devices(
     db: &DatabaseConnection,
     payload: device_schema::PushTeacherEndpointsInput,
 ) -> Result<device_schema::PushTeacherEndpointsOutput> {
-    let control_port = payload.control_port.unwrap_or(18889);
+    let control_port = payload.control_port.unwrap_or(38888);
     let request_id = uuid::Uuid::new_v4().to_string();
 
     let mut results = Vec::new();

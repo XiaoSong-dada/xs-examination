@@ -34,7 +34,7 @@
 4. 命令层调用 `student_exam_service::distribute_exam_papers_by_exam_id`。
 5. 服务层读取考试详情、题目列表、当前考试下已分配设备的学生记录。
 6. 服务层为每个已分配 IP 的学生构造一条 `DISTRIBUTE_EXAM_PAPER` TCP 请求。
-7. 教师端通过 `student_control_client::distribute_exam_paper` 直连学生端 `ip:18889`。
+7. 教师端通过 `student_control_client::distribute_exam_paper` 直连学生端 `ip:38888`。
 8. 学生端 `control_server::handle_client` 收到 `DISTRIBUTE_EXAM_PAPER` 请求。
 9. 学生端调用 `ExamRuntimeService::upsert_distribution`，把 `exam_sessions` 和 `exam_snapshots` 写入本地数据库。
 10. 学生端返回 `DISTRIBUTE_EXAM_PAPER_ACK` 给教师端。
@@ -120,7 +120,7 @@
 5. 把考试元信息序列化成 `exam_meta`。
 6. 把题目列表序列化成 `questions_payload`。
 7. 针对每个学生设备构造 `DistributeExamPaperRequest`。
-8. 通过 `student_control_client::distribute_exam_paper(device_ip, 18889, &req)` 发送到学生端。
+8. 通过 `student_control_client::distribute_exam_paper(device_ip, 38888, &req)` 发送到学生端。
 9. 读取学生端 ACK，并汇总为 `DistributeExamPapersOutput`。
 
 因此，这条链路的网络事实是：

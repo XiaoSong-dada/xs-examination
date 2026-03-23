@@ -162,7 +162,7 @@ apps/teacher/src-tauri/src/network/student_control_client.rs 中的 apply_teache
 3. transport 薄层把请求 JSON 写入连接，并按配置决定是否半关闭写端。
 4. transport 薄层统一读取学生端返回的 ACK。
 
-默认 control_port 由前端传入，未传时教师端后端默认使用 18889。学生端默认 control_port 也是 18889，定义在 apps/student/src-tauri/src/config.rs。
+默认 control_port 由前端传入，未传时教师端后端默认使用 38888。学生端默认 control_port 也是 38888，定义在 apps/student/src-tauri/src/config.rs。
 
 所以这条链路的网络本质是：
 
@@ -198,7 +198,7 @@ apps/teacher/src/services/studentService.ts 中的 connectStudentDevicesByExamId
 4. 读取当前考试信息，并对每条分配记录构造 `ApplyTeacherEndpointsRequest`。
 5. 关键约束：请求中的 `payload.student_id` 必须取自分配记录里的 `student_id`，不能取设备表里的 `device_id`。
 6. 当前请求除了教师端地址，还会携带 `session_id`、`exam_id`、`exam_title`、`student_no`、`student_name`、`assigned_ip_addr`、考试时间等连接阶段会话字段。
-7. 再调用 `student_control_client::apply_teacher_endpoints(device_ip, 18889, &req)` 逐台下发。
+7. 再调用 `student_control_client::apply_teacher_endpoints(device_ip, 38888, &req)` 逐台下发。
 7. 该函数底层通过 `network/transport/tcp_request_reply.rs::send_json_request(...)` 执行 TCP 单播与 ACK 读取。
 
 ### 4. 为什么 `student_id` 映射是关键
