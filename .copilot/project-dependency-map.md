@@ -325,6 +325,7 @@ graph TD
 - `connect_student_devices_by_exam_id` 当前除了下发教师端地址，还会读取考试详情，并把 `session_id/exam_id/exam_title/student_no/student_name/assigned_ip_addr` 一并塞进 `APPLY_TEACHER_ENDPOINTS` payload。
 - 这使得“分配页连接考生设备”链路已经从“仅地址链路”扩展成“地址链路 + 最小会话预热链路”。
 - `network/ws_server.rs` 现在不再只负责心跳在线态聚合，还会处理学生端 `ANSWER_SYNC` 消息，把最新答案 upsert 到 `answer_sheets`，并把监考/报告使用的进度聚合 upsert 到 `student_exam_progress`。
+- `network/ws_server.rs` 现在还会基于落库结果返回细粒度 `ANSWER_SYNC_ACK`，其中成功题目与失败题目会分别回传给学生端，用于本地同步状态收敛。
 
 ### 5.6 快速定位
 
@@ -345,6 +346,7 @@ graph TD
 - 若任务是“发卷时为什么没有覆盖本地考试基础信息”，先看学生端 `services/exam_runtime_service.rs` 中按 `exam_id` 的保护分支，以及 `exam_snapshots` 的更新绑定逻辑。
 - 若任务是“监考页 / 报告页答题进度始终为 0”，先看 `hooks/useMonitor.ts`、`hooks/useReport.ts`、`services/student_exam_service.rs`、`repos/student_exam_repo.rs` 与 `network/ws_server.rs`。
 - 若任务是“教师端为什么收到了心跳但没有收到答案进度”，先看 `network/ws_server.rs` 中 `ANSWER_SYNC` 处理分支，以及 `migrations/0004_add_answer_progress.sql` 的 `answer_sheets/student_exam_progress` 结构。
+- 若任务是“为什么 ACK 后仍有部分题目停留在 failed / sent”，先看教师端 `network/ws_server.rs::persist_answer_sync/send_answer_sync_ack` 的分题结果，以及学生端 `network/ws_client.rs`、`services/exam_runtime_service.rs` 的 `mark_answers_synced/mark_answers_failed/flush_pending_answer_sync`。
 
 ---
 
@@ -462,7 +464,7 @@ graph TD
 | controllers | `controllers/` | 新增的控制层入口，当前已承载设备运行态命令 |
 | network | `network/` | 发现、控制服务、WS 客户端、本机 IP 获取工具 |
 | network-transport | `network/transport/` | WS connect / writer loop、TCP bind/read/write 的薄封装层 |
-| services | `services/` | 业务服务，现包含教师端地址配置、设备 IP 运行态查询、启动恢复、统一自动重连、连接阶段会话预写入、发卷落库、按题答案本地读取与考试运行时读取 |
+| services | `services/` | 业务服务，现包含教师端地址配置、设备 IP 运行态查询、启动恢复、统一自动重连、连接阶段会话预写入、发卷落库、按题答案本地读取、ACK 回写、pending/failed outbox flush 与重连后一轮 full 同步调度 |
 | schemas | `schemas/` | 控制协议与网络协议结构 |
 | state | `state.rs` | 应用共享状态 |
 | db | `db/` | 本地数据库与实体 |
@@ -482,6 +484,7 @@ graph TD
     SSchema[schemas]
     SState[state]
     SDb[db]
+    SAnswer[(local_answers / sync_outbox)]
     SConfig[config]
     SUtils[utils]
 
@@ -501,11 +504,17 @@ graph TD
     SNet --> SUtils
     SNet --> SState
     SSvc --> SDb
+    SSvc --> SAnswer
     SSvc --> SState
     SSvc --> SNet
     SState --> SDb
     SState --> SConfig
 ```
+
+补充说明：
+
+- 当前学生端 Rust 已形成一条新的稳定同步闭环：`commands.rs::send_answer_sync -> ExamRuntimeService(local_answers/sync_outbox) -> ws_client -> teacher ANSWER_SYNC_ACK -> ExamRuntimeService::mark_answers_synced/mark_answers_failed`。
+- 当前重连链也已与答题同步链收敛：`ws_reconnect_service -> ws_client::connect -> ws_connected -> send_full_answer_sync_for_current_session`，连接存活期间再由 `flush_pending_answer_sync` 承接 `pending/failed` 的常规补发。
 
 ### 7.4 扇入 / 扇出
 
@@ -536,7 +545,8 @@ graph TD
 - 若任务是“学生端连接设备时是否已经建立本地会话”，先看 `network/control_server.rs` 中 `APPLY_TEACHER_ENDPOINTS` 分支和 `services/exam_runtime_service.rs::upsert_connected_session`。
 - 若任务是“为什么同 exam_id 再发卷没有覆盖本地考试标题/学生信息”，先看 `services/exam_runtime_service.rs::upsert_distribution` 中按 `exam_id` 的保护逻辑。
 - 若任务是“为什么 discovery 回包 IP 和 Header 设备 IP 不一致”，先核对两条链是否都已改为复用 `network/device_network.rs::resolve_device_ip`，以及前端是否已通过 `device_ip_updated` 事件刷新 `deviceStore.ip`。
-- 若任务是“学生端答案没有发到教师端”，先看 `commands.rs::send_answer_sync`、`network/ws_client.rs::build_answer_sync_message` 与教师端 `network/ws_server.rs` 的 `ANSWER_SYNC` 处理。
+- 若任务是“学生端答案没有发到教师端 / ACK 失败后状态不收敛”，先看 `commands.rs::send_answer_sync`、`network/ws_client.rs`（`AnswerSyncAck` 处理、重连后 full sync、pending/failed flush）与教师端 `network/ws_server.rs` 的 `ANSWER_SYNC/ANSWER_SYNC_ACK` 分支。
+- 若任务是“同一教师 endpoint 下 student_id 切换后为何仍串用旧连接 / 旧会话”，先看 `services/ws_reconnect_service.rs`、`network/ws_client.rs` 与 `state.rs` 中 reconnect target 切换、强制断线和 full sync 去重逻辑。
 - 若任务是“学生端重启后答题进度消失”，先看 `services/exam_runtime_service.rs::get_current_session_answers`、`commands.rs::get_current_session_answers` 与前端 `pages/Exam/index.tsx` 的本地答案回填逻辑。
 
 ---
@@ -619,14 +629,15 @@ graph TD
 
 若任务命中已有业务闭环，除了看模块入口外，还应优先阅读对应的最短 e2e 文档：
 
-| 业务主题 | 对应 e2e 文档 |
-|------|------|
-| 教师端发现学生设备 IP / 学生端 Header 设备 IP | `doc/e2e/e2e-minimal-teacher-student-ip-chain.md` |
-| 分配页随机分配考生到设备 | `doc/e2e/e2e-minimal-device-assign-student-session-chain.md` |
-| 分配页连接考生设备并在学生端预写入会话 | `doc/e2e/e2e-minimal-connect-student-device-chain.md` |
-| 教师端分发试卷到学生端本地落库 | `doc/e2e/e2e-minimal-exam-paper-distribution-chain.md` |
-| 学生端启动恢复 / 自动重连 / 本地会话与答案恢复 | `doc/e2e/e2e-minimal-student-startup-reconnect-chain.md` |
-| 教师端开始考试后学生端按题同步答案并更新监考进度 | `doc/e2e/e2e-minimal-answer-sync-progress-chain.md` |
+| 业务主题 | 适用范围简述 | 对应 e2e 文档 |
+|------|------|------|
+| 教师端发现学生设备 IP / 学生端 Header 设备 IP | 适合排查 discovery ACK、学生端本机 IP 解析、教师地址下发以及 Header 设备 IP 展示是否同源。 | `doc/e2e/e2e-minimal-teacher-student-ip-chain.md` |
+| 分配页随机分配考生到设备 | 适合区分“教师端随机分配只更新 `student_exams.ip_addr`”与“学生端 `exam_sessions` 真正落库发生在后续链路”的边界。 | `doc/e2e/e2e-minimal-device-assign-student-session-chain.md` |
+| 分配页连接考生设备并在学生端预写入会话 | 适合排查 `APPLY_TEACHER_ENDPOINTS`、学生端 `teacher_endpoints` 落库、`exam_sessions` 预写入和 Header 会话信息展示。 | `doc/e2e/e2e-minimal-connect-student-device-chain.md` |
+| 教师端分发试卷到学生端本地落库 | 适合排查 `DISTRIBUTE_EXAM_PAPER` 控制链、`exam_sessions/exam_snapshots` 落库，以及“已收到试卷”页面状态的来源。 | `doc/e2e/e2e-minimal-exam-paper-distribution-chain.md` |
+| 学生端启动恢复 / 自动重连 / 本地会话与答案恢复 | 适合排查冷启动恢复、持续重连、同 endpoint 身份切换、页面答案回填，以及重连后的自愈前置链路。 | `doc/e2e/e2e-minimal-student-startup-reconnect-chain.md` |
+| 教师端开始考试后学生端按题同步答案并更新监考进度 | 适合排查 `EXAM_START`、按题 `ANSWER_SYNC`、细粒度 ACK、教师端进度聚合以及 Monitor/Report 的实时展示口径。 | `doc/e2e/e2e-minimal-answer-sync-progress-chain.md` |
+| 教师端恢复连接后学生端全量答案同步与 ACK 收敛 | 适合排查教师端异常关闭后的 full `ANSWER_SYNC`、`pending/failed` flush、ACK 收敛、部分成功/失败以及去重保护。 | `doc/e2e/e2e-minimal-answer-sync-ack-reconnect-chain.md` |
 
 若现有任务改变了这些链路的入口、出口、关键持久化落点、主查询来源或页面验证面，应同步更新对应 e2e 文档，并回写本图谱中的业务映射。
 
@@ -644,7 +655,7 @@ graph TD
 8. 这条新链路的关键主键是 `student_id`，不是 `device_id`；如果连接下发或心跳聚合时混用两者，会出现“终端有心跳、UI 仍显示未连接”的典型错位问题。
 9. “连接考生设备”已不再只是教师地址下发链路：教师端 `DeviceAssign/useDeviceAssign/studentService` -> 教师端 `student_exam_controller/student_control_client` -> 学生端 `control_server/teacher_endpoints_service/exam_runtime_service::upsert_connected_session` -> 学生端前端 `get_current_exam_bundle/examStore/AppHeader`，形成“连接即预写入会话”的完整闭环。
 10. “分发试卷”仍是一条独立的跨端控制链路：教师端 `ExamManage/useExamManage/studentService` -> 教师端 `student_exam_controller/student_exam_service/student_control_client` -> 学生端 `control_server/exam_runtime_service::upsert_distribution` -> 学生端前端 `get_current_exam_bundle/examStore/App.tsx`。
-11. “开始考试 -> 按题作答 -> 教师端进度聚合”已经形成新的跨端链路：教师端 `ExamManage/useExamManage/studentService` 触发 `start_exam_by_exam_id`，学生端 `ws_client` 收到 `EXAM_START` 进入 `active`，随后 `pages/Exam/index.tsx -> services/examRuntimeService.ts -> commands.rs::send_answer_sync -> network/ws_client.rs` 发送 `ANSWER_SYNC`，教师端 `network/ws_server.rs` 落库 `answer_sheets` 并更新 `student_exam_progress`，最终由 `hooks/useMonitor.ts` 与 `hooks/useReport.ts` 读取真实 `progress_percent`。
+11. “开始考试 -> 按题作答 -> 教师端进度聚合”链路已收敛到 ACK 语义：学生端 `commands.rs::send_answer_sync` 仅把 outbox 标记为 `sent`，教师端 `network/ws_server.rs` 完成落库后返回 `ANSWER_SYNC_ACK`，学生端 `ws_client` 收到 ACK 再调用 `exam_runtime_service::mark_answers_synced` 回写本地状态；连接恢复后学生端还会触发一轮 full `ANSWER_SYNC` 并后台 flush pending/failed outbox，用于自愈断链窗口答案。
 12. 学生端“本地答案恢复”已经从纯会话恢复链中独立出来：启动后除了 `App.tsx/examStore` 恢复 `exam_sessions/exam_snapshots`，`pages/Exam/index.tsx` 还会通过 `getCurrentSessionAnswers -> get_current_session_answers -> ExamRuntimeService::get_current_session_answers` 把 `local_answers` 回填到页面选中态。
 13. 这两条链路共用学生端控制端口，因此端口配置必须一致；连接阶段与发卷阶段若使用不同控制端口，会出现“已连接但发卷 0/x”或 `10061` 的典型断点。
 14. 学生端 Header 当前已经不再依赖 `deviceStore.assignedStudent` 承载业务会话数据，而是通过 `examStore.currentSession` 读取考试标题和学生名称；教师端连接状态改为独立显示，不再作为业务会话信息的展示门控。
@@ -653,3 +664,5 @@ graph TD
 17. 考试管理页现已把原先基于 `ip_addr` 的“已连接/未连接”二态展示替换为统一四态“设备状态”，并按 5 秒轮询复用同一状态查询链路，因此三个页面的状态口径已经完成前端统一。
 18. 2026-03-20 起，两端 Rust 网络层新增 `network/transport` 子层：教师端 `ws_server/student_control_client` 与学生端 `ws_client/control_server` 不再直接承载全部底层收发细节，而是把 WebSocket 握手/写循环与 TCP request-reply 的 connect、timeout、read/write 边界逐步下沉到 transport 薄封装。
 19. 2026-03-21 起，学生端设备 IP 已形成独立调用链：前端 `deviceStore/deviceService` 通过 Tauri `get_device_runtime_status` 调用学生端 `controllers/device_controller.rs -> services/device_service.rs -> network/device_network.rs` 获取本机 IP；`discovery_listener.rs` 也复用同一工具生成 ACK 中的设备 IP，并通过 `device_ip_updated` 事件回流前端 Header。
+20. 2026-03-23 起，`ANSWER_SYNC_ACK` 已支持细粒度结果：教师端 ACK 会返回 `questionIds/failedQuestionIds/successCount/failedCount`，学生端按题分别执行 `mark_answers_synced` 与 `mark_answers_failed`，不再仅按整批成功或整批失败处理。
+21. 同日，学生端重连链与答案同步链已完成真正收敛：`ws_connected` 后会按当前会话触发一轮带冷却保护的 full `ANSWER_SYNC`，若同一 endpoint 下切换了 `student_id`，则会先强制断开旧连接再按新身份重连，避免心跳身份与答题会话串台。

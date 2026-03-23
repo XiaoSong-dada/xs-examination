@@ -92,4 +92,22 @@ impl AppState {
             false
         }
     }
+
+    pub fn send_ws_text_to_peer(&self, peer_id: &str, text: String) -> bool {
+        let Some(sender) = self
+            .ws_peers
+            .get(peer_id)
+            .map(|entry| entry.value().clone())
+        else {
+            return false;
+        };
+
+        if sender.send(text).is_ok() {
+            true
+        } else {
+            self.ws_peers.remove(peer_id);
+            self.student_peer_map.retain(|_, mapped_peer| mapped_peer != peer_id);
+            false
+        }
+    }
 }

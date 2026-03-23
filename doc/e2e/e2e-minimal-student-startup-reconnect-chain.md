@@ -21,20 +21,22 @@
 1. 学生端应用启动，`lib.rs` 在 `setup()` 中启动 `discovery_listener`、`control_server`，并追加启动 `ws_reconnect_service::bootstrap_from_local_state`。
 2. `bootstrap_from_local_state` 从本地 `teacher_endpoints` 读取 `is_master` endpoint。
 3. 同一个启动流程中，它再通过 `ExamRuntimeService::get_current_exam_bundle` 读取最近一条 `exam_sessions`，拿到当前 `student_id`。
-4. 若 `endpoint` 与 `student_id` 都存在，则交给 `WsReconnectService::start_or_update` 设定当前连接目标。
+4. 若 `endpoint` 与 `student_id` 都存在，则交给 `WsReconnectService::start_or_update` 设定当前连接目标；若同一 endpoint 后续切换了 `student_id`，则会先强制断开旧连接，避免旧身份继续复用。
 5. 重连服务启动后台循环：只要当前未连接，就持续调用 `ws_client::connect(endpoint, student_id)`。
 6. 若首次连接失败，则发出 `ws_disconnected` 事件，并在固定间隔后继续重试。
 7. 若连接成功，则 `ws_client` 建立发送通道、reader/writer/heartbeat 循环，并发出 `ws_connected` 事件。
-8. 若后续 writer 出错、reader 出错或 heartbeat 发送失败，`ws_client` 会统一清理连接状态并再次发出 `ws_disconnected` 事件。
-9. 重连服务检测到当前目标仍存在且当前未连接，会再次进入下一轮重试，直到恢复连接。
-10. 与连接链并行，前端 `App.tsx -> examStore` 会继续读取最近 `exam_sessions`，`AppHeader.tsx` 会直接恢复考试标题和学生名称；`deviceStore` 则根据 `get_teacher_runtime_status` 与 `ws` 事件显示 `connected / connecting / disconnected`，并在 `connecting` 时显示闪烁的 `link.png`。
-11. 当考试页面挂载且本地已有试卷时，`pages/Exam/index.tsx` 会再通过 `getCurrentSessionAnswers -> get_current_session_answers -> ExamRuntimeService::get_current_session_answers` 读取 `local_answers`，并把已保存答案回填到 `selectedAnswers`，恢复学生端页面上的已答状态。
+8. 同一轮 `ws_connected` 后，学生端会按当前会话触发一轮带冷却保护的 full `ANSWER_SYNC`，用于追平断链窗口的本地答案。
+9. 连接保持期间，后台还会持续冲刷 `sync_outbox` 中 `pending/failed` 记录，作为常规补发路径。
+10. 若后续 writer 出错、reader 出错或 heartbeat 发送失败，`ws_client` 会统一清理连接状态并再次发出 `ws_disconnected` 事件。
+11. 重连服务检测到当前目标仍存在且当前未连接，会再次进入下一轮重试，直到恢复连接。
+12. 与连接链并行，前端 `App.tsx -> examStore` 会继续读取最近 `exam_sessions`，`AppHeader.tsx` 会直接恢复考试标题和学生名称；`deviceStore` 则根据 `get_teacher_runtime_status` 与 `ws` 事件显示 `connected / connecting / disconnected`，并在 `connecting` 时显示闪烁的 `link.png`。
+13. 当考试页面挂载且本地已有试卷时，`pages/Exam/index.tsx` 会再通过 `getCurrentSessionAnswers -> get_current_session_answers -> ExamRuntimeService::get_current_session_answers` 读取 `local_answers`，并把已保存答案回填到 `selectedAnswers`，恢复学生端页面上的已答状态。
 
 到第 5 步为止，已经形成“启动即自动连接”的最短后台闭环。
 
-到第 10 步为止，已经形成“启动恢复头部信息 + 后台自动重连状态可见”的最短页面闭环。
+到第 12 步为止，已经形成“启动恢复头部信息 + 后台自动重连状态可见”的最短页面闭环。
 
-到第 11 步为止，已经形成“启动恢复会话 + 恢复页面已答状态”的最短答题恢复闭环。
+到第 13 步为止，已经形成“启动恢复会话 + 恢复页面已答状态”的最短答题恢复闭环。
 
 ## 入口到出口的精简调用链
 
@@ -86,6 +88,11 @@
 3. 启动唯一的一条后台重连循环
 4. 只要当前目标未消失且当前未连接，就持续尝试重新连接
 
+此外，当前实现还补了一条身份保护规则：
+
+1. 若同一 `endpoint` 下重新下发了不同的 `student_id`，则不会继续复用旧 WebSocket。
+2. `WsReconnectService` 会先触发旧连接收口，再按新 `student_id` 重新发起建连。
+
 这意味着：
 
 1. 启动恢复走它
@@ -108,6 +115,11 @@
 4. 发出 `ws_connected` 事件
 
 因此，重连服务负责“何时不断重试”，`ws_client` 负责“每一次具体怎么连接”。
+
+连接成功后，`ws_client` 还会负责两件与本次计划直接相关的新动作：
+
+1. 对当前会话发送一轮带冷却保护的 full `ANSWER_SYNC`。
+2. 启动对 `sync_outbox(pending/failed)` 的后台冲刷。
 
 ### 5. 断线后的统一收口
 
@@ -178,6 +190,7 @@
 1. 启动恢复会设定重连目标
 2. 教师端重新下发地址也会更新重连目标
 3. 目标变更时旧连接会先断开，再切换到新目标
+4. 新连接建立后，若当前会话存在本地答案，则会自动进入 full sync + 增量补发的自愈阶段
 
 ## 最短 e2e 验收点
 
@@ -217,4 +230,10 @@
 
 ## 一句话总结
 
-学生端现在已经形成完整的“启动恢复 + 自动连接 + 断线后重连 + 本地答案恢复”最短链路：应用启动时由 `lib.rs` 触发 `ws_reconnect_service::bootstrap_from_local_state`，从本地 `teacher_endpoints(is_master)` 与最近 `exam_sessions.student_id` 恢复连接目标，再由 `ws_reconnect_service` 统一驱动 `ws_client` 持续建连；连接失败或后续断线时，`ws_client` 统一清理状态并发出断线事件，重连服务继续按固定间隔重试；前端一边通过 `App.tsx/examStore/AppHeader` 恢复本地考试与学生信息并显示连接状态，一边通过 `pages/Exam/index.tsx -> getCurrentSessionAnswers -> get_current_session_answers` 把 `local_answers` 回填到答题页的选中态。
+学生端现在已经形成完整的“启动恢复 + 自动连接 + 断线后重连 + 本地答案恢复 + 重连后答案自愈”最短链路：应用启动时由 `lib.rs` 触发 `ws_reconnect_service::bootstrap_from_local_state`，从本地 `teacher_endpoints(is_master)` 与最近 `exam_sessions.student_id` 恢复连接目标，再由 `ws_reconnect_service` 统一驱动 `ws_client` 持续建连；连接失败或后续断线时，`ws_client` 统一清理状态并发出断线事件，重连服务继续按固定间隔重试；连接恢复后，学生端会对当前会话自动发送一轮带冷却保护的 full `ANSWER_SYNC`，并持续冲刷 `pending/failed` outbox；前端一边通过 `App.tsx/examStore/AppHeader` 恢复本地考试与学生信息并显示连接状态，一边通过 `pages/Exam/index.tsx -> getCurrentSessionAnswers -> get_current_session_answers` 把 `local_answers` 回填到答题页的选中态。
+
+## 相关阅读
+
+1. [重连后学生答案全量同步与 ACK 收敛计划](../plans/2026_03_23_重连后学生答案全量同步与ACK收敛计划.md)
+2. [教师端开始考试到学生端按题同步并更新监考进度的最短 e2e 链路](./e2e-minimal-answer-sync-progress-chain.md)
+3. [教师端异常恢复后学生端全量答案同步与 ACK 收敛最短 e2e 链路](./e2e-minimal-answer-sync-ack-reconnect-chain.md)

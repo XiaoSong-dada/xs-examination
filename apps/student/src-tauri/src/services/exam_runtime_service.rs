@@ -1,10 +1,12 @@
 use anyhow::Result;
+use crate::network::protocol::AnswerItem;
 use sea_orm::{
-    ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, QueryOrder, Set,
+    ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, QueryOrder, QuerySelect, Set,
 };
+use serde::Deserialize;
 use tauri::Manager;
 
-use crate::db::entities::{exam_sessions, exam_snapshots, local_answers};
+use crate::db::entities::{exam_sessions, exam_snapshots, local_answers, sync_outbox};
 use crate::schemas::control_protocol::{ApplyTeacherEndpointsPayload, DistributeExamPaperPayload};
 use crate::schemas::exam_runtime_schema::{CurrentExamBundleDto, ExamSessionDto, ExamSnapshotDto, LocalAnswerDto};
 use crate::utils::datetime::now_ms;
@@ -12,7 +14,273 @@ use crate::utils::datetime::now_ms;
 
 pub struct ExamRuntimeService;
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PendingAnswerSyncPayload {
+    exam_id: String,
+    student_id: String,
+    question_id: String,
+    answer: String,
+    revision: Option<i64>,
+    timestamp: Option<i64>,
+}
+
 impl ExamRuntimeService {
+    pub async fn flush_pending_answer_sync(
+        app_handle: &tauri::AppHandle,
+        max_count: usize,
+    ) -> Result<usize> {
+        let state = app_handle.state::<crate::state::AppState>();
+        let Some(sender) = state.ws_sender() else {
+            return Ok(0);
+        };
+
+        let rows = sync_outbox::Entity::find()
+            .filter(sync_outbox::Column::EventType.eq("ANSWER_SYNC".to_string()))
+            .filter(sync_outbox::Column::Status.is_in(["pending", "failed"]))
+            .order_by_asc(sync_outbox::Column::CreatedAt)
+            .limit(max_count as u64)
+            .all(&state.db)
+            .await?;
+
+        let mut flushed = 0usize;
+        for row in rows {
+            let payload: PendingAnswerSyncPayload = match serde_json::from_slice(&row.payload) {
+                Ok(v) => v,
+                Err(err) => {
+                    let next_retry_count = row.retry_count + 1;
+                    let mut model: sync_outbox::ActiveModel = row.into();
+                    model.status = Set("failed".to_string());
+                    model.retry_count = Set(next_retry_count);
+                    model.last_error = Set(Some(format!("payload parse failed: {}", err)));
+                    model.updated_at = Set(now_ms());
+                    model.update(&state.db).await?;
+                    continue;
+                }
+            };
+
+            let answer_item = AnswerItem {
+                question_id: payload.question_id.clone(),
+                answer: payload.answer.clone(),
+                revision: payload.revision,
+                answer_updated_at: payload.timestamp,
+            };
+
+            let message = crate::network::ws_client::build_answer_sync_message(
+                &payload.exam_id,
+                &payload.student_id,
+                Some(&row.session_id),
+                vec![answer_item],
+                "incremental",
+                Some(&format!("outbox-{}", row.id)),
+            )?;
+
+            if sender.send(message).is_err() {
+                break;
+            }
+
+            let mut model: sync_outbox::ActiveModel = row.into();
+            model.status = Set("sent".to_string());
+            model.updated_at = Set(now_ms());
+            model.last_error = Set(None);
+            model.update(&state.db).await?;
+            flushed += 1;
+        }
+
+        Ok(flushed)
+    }
+
+    pub async fn get_current_session_answer_sync_bundle(
+        app_handle: &tauri::AppHandle,
+    ) -> Result<Option<(String, String, String, Vec<LocalAnswerDto>)>> {
+        let state = app_handle.state::<crate::state::AppState>();
+        let sessions = exam_sessions::Entity::find()
+            .order_by_desc(exam_sessions::Column::UpdatedAt)
+            .all(&state.db)
+            .await?;
+
+        if sessions.is_empty() {
+            return Ok(None);
+        }
+
+        let target_student_id = state.reconnect_target().map(|(_, sid)| sid);
+        let session = if let Some(target_sid) = target_student_id {
+            sessions
+                .iter()
+                .find(|item| item.student_id == target_sid)
+                .cloned()
+                .unwrap_or_else(|| sessions[0].clone())
+        } else {
+            sessions[0].clone()
+        };
+
+        let answers = local_answers::Entity::find()
+            .filter(local_answers::Column::SessionId.eq(session.id.clone()))
+            .order_by_desc(local_answers::Column::UpdatedAt)
+            .all(&state.db)
+            .await?;
+
+        let items: Vec<LocalAnswerDto> = answers
+            .into_iter()
+            .filter_map(|row| {
+                row.answer.map(|answer| LocalAnswerDto {
+                    question_id: row.question_id,
+                    answer,
+                    revision: row.revision,
+                    updated_at: row.updated_at,
+                })
+            })
+            .collect();
+
+        Ok(Some((session.id, session.exam_id, session.student_id, items)))
+    }
+
+    pub async fn mark_answers_synced(
+        app_handle: &tauri::AppHandle,
+        exam_id: &str,
+        student_id: &str,
+        session_id: Option<&str>,
+        question_ids: &[String],
+        acked_at: i64,
+    ) -> Result<usize> {
+        let state = app_handle.state::<crate::state::AppState>();
+
+        let resolved_session_id = if let Some(value) = session_id {
+            value.to_string()
+        } else {
+            let row = exam_sessions::Entity::find()
+                .filter(exam_sessions::Column::ExamId.eq(exam_id.to_string()))
+                .filter(exam_sessions::Column::StudentId.eq(student_id.to_string()))
+                .order_by_desc(exam_sessions::Column::UpdatedAt)
+                .one(&state.db)
+                .await?;
+
+            let Some(session) = row else {
+                return Ok(0);
+            };
+            session.id
+        };
+
+        let full_sync = question_ids.is_empty();
+        let mut synced_count = 0usize;
+
+        let mut query = local_answers::Entity::find()
+            .filter(local_answers::Column::SessionId.eq(resolved_session_id.clone()));
+        if !full_sync {
+            query = query.filter(local_answers::Column::QuestionId.is_in(question_ids.iter().cloned()));
+        }
+
+        let rows = query.all(&state.db).await?;
+        for row in rows {
+            let mut model: local_answers::ActiveModel = row.into();
+            model.sync_status = Set("synced".to_string());
+            model.last_synced_at = Set(Some(acked_at));
+            model.updated_at = Set(acked_at);
+            model.update(&state.db).await?;
+            synced_count += 1;
+        }
+
+        let mut outbox_query = crate::db::entities::sync_outbox::Entity::find()
+            .filter(crate::db::entities::sync_outbox::Column::SessionId.eq(resolved_session_id.clone()))
+            .filter(crate::db::entities::sync_outbox::Column::EventType.eq("ANSWER_SYNC".to_string()))
+            .filter(crate::db::entities::sync_outbox::Column::Status.is_in(["pending", "failed", "sent"]));
+
+        if !full_sync {
+            let aggregate_ids: Vec<String> = question_ids
+                .iter()
+                .map(|qid| format!("{}:{}", resolved_session_id, qid))
+                .collect();
+            outbox_query = outbox_query.filter(
+                crate::db::entities::sync_outbox::Column::AggregateId.is_in(aggregate_ids),
+            );
+        }
+
+        let outbox_rows = outbox_query.all(&state.db).await?;
+        for row in outbox_rows {
+            let mut model: crate::db::entities::sync_outbox::ActiveModel = row.into();
+            model.status = Set("synced".to_string());
+            model.updated_at = Set(acked_at);
+            model.last_error = Set(None);
+            model.update(&state.db).await?;
+        }
+
+        Ok(synced_count)
+    }
+
+    pub async fn mark_answers_failed(
+        app_handle: &tauri::AppHandle,
+        exam_id: &str,
+        student_id: &str,
+        session_id: Option<&str>,
+        question_ids: &[String],
+        failed_at: i64,
+        error_message: &str,
+    ) -> Result<usize> {
+        let state = app_handle.state::<crate::state::AppState>();
+
+        let resolved_session_id = if let Some(value) = session_id {
+            value.to_string()
+        } else {
+            let row = exam_sessions::Entity::find()
+                .filter(exam_sessions::Column::ExamId.eq(exam_id.to_string()))
+                .filter(exam_sessions::Column::StudentId.eq(student_id.to_string()))
+                .order_by_desc(exam_sessions::Column::UpdatedAt)
+                .one(&state.db)
+                .await?;
+
+            let Some(session) = row else {
+                return Ok(0);
+            };
+            session.id
+        };
+
+        let full_sync = question_ids.is_empty();
+        let mut failed_count = 0usize;
+
+        let mut answer_query = local_answers::Entity::find()
+            .filter(local_answers::Column::SessionId.eq(resolved_session_id.clone()));
+        if !full_sync {
+            answer_query = answer_query
+                .filter(local_answers::Column::QuestionId.is_in(question_ids.iter().cloned()));
+        }
+
+        let answer_rows = answer_query.all(&state.db).await?;
+        for row in answer_rows {
+            let mut model: local_answers::ActiveModel = row.into();
+            model.sync_status = Set("pending".to_string());
+            model.updated_at = Set(failed_at);
+            model.update(&state.db).await?;
+            failed_count += 1;
+        }
+
+        let mut outbox_query = sync_outbox::Entity::find()
+            .filter(sync_outbox::Column::SessionId.eq(resolved_session_id.clone()))
+            .filter(sync_outbox::Column::EventType.eq("ANSWER_SYNC".to_string()))
+            .filter(sync_outbox::Column::Status.is_in(["pending", "failed", "sent"]));
+
+        if !full_sync {
+            let aggregate_ids: Vec<String> = question_ids
+                .iter()
+                .map(|qid| format!("{}:{}", resolved_session_id, qid))
+                .collect();
+            outbox_query = outbox_query
+                .filter(sync_outbox::Column::AggregateId.is_in(aggregate_ids));
+        }
+
+        let outbox_rows = outbox_query.all(&state.db).await?;
+        for row in outbox_rows {
+            let next_retry_count = row.retry_count + 1;
+            let mut model: sync_outbox::ActiveModel = row.into();
+            model.status = Set("failed".to_string());
+            model.retry_count = Set(next_retry_count);
+            model.last_error = Set(Some(error_message.to_string()));
+            model.updated_at = Set(failed_at);
+            model.update(&state.db).await?;
+        }
+
+        Ok(failed_count)
+    }
+
     pub async fn get_current_session_answers(
         app_handle: &tauri::AppHandle,
     ) -> Result<Vec<LocalAnswerDto>> {
