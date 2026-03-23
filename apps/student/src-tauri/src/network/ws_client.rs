@@ -107,6 +107,37 @@ pub async fn connect(
         }
     });
 
+    let app_for_outbox_flush = app_handle.clone();
+    tokio::spawn(async move {
+        loop {
+            let connected = {
+                let state = app_for_outbox_flush.state::<crate::state::AppState>();
+                state.ws_connected()
+            };
+
+            if !connected {
+                break;
+            }
+
+            match crate::services::exam_runtime_service::ExamRuntimeService::flush_pending_answer_sync(
+                &app_for_outbox_flush,
+                20,
+            )
+            .await
+            {
+                Ok(flushed) if flushed > 0 => {
+                    println!("[ws-client] flushed pending answer sync count={}", flushed);
+                }
+                Ok(_) => {}
+                Err(err) => {
+                    eprintln!("[ws-client] flush pending answer sync failed: {}", err);
+                }
+            }
+
+            sleep(Duration::from_secs(2)).await;
+        }
+    });
+
     let app_for_writer = app_handle.clone();
     let ws_url_for_writer = ws_url.clone();
     tokio::spawn(async move {
@@ -293,11 +324,23 @@ async fn handle_server_message(
         MessageType::AnswerSyncAck => {
             let payload: AnswerSyncAckPayload = serde_json::from_value(envelope.payload)?;
             if !payload.success {
+                let failed_count = crate::services::exam_runtime_service::ExamRuntimeService::mark_answers_failed(
+                    &app_handle,
+                    &payload.exam_id,
+                    &payload.student_id,
+                    payload.session_id.as_deref(),
+                    &payload.question_ids,
+                    payload.acked_at,
+                    &payload.message,
+                )
+                .await?;
+
                 eprintln!(
-                    "[ws-client] answer sync ack failed exam_id={} student_id={} mode={:?} message={}",
+                    "[ws-client] answer sync ack failed exam_id={} student_id={} mode={:?} failed_count={} message={}",
                     payload.exam_id,
                     payload.student_id,
                     payload.sync_mode,
+                    failed_count,
                     payload.message
                 );
                 return Ok(());

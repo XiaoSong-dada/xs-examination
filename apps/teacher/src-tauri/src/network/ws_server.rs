@@ -273,8 +273,9 @@ async fn persist_answer_sync(
         let upsert_sql = format!(
             "INSERT INTO answer_sheets (id, student_exam_id, student_id, exam_id, question_id, answer, revision, answer_updated_at, received_at, synced_at) \
              VALUES ('{}', '{}', '{}', '{}', '{}', '{}', {}, {}, {}, {}) \
-             ON CONFLICT(student_id, question_id) DO UPDATE SET \
+                         ON CONFLICT(student_exam_id, question_id) DO UPDATE SET \
                student_exam_id = excluded.student_exam_id, \
+                             student_id = excluded.student_id, \
                exam_id = excluded.exam_id, \
                              answer = CASE \
                                  WHEN excluded.revision > COALESCE(answer_sheets.revision, 0) THEN excluded.answer \
