@@ -1,6 +1,8 @@
 use anyhow::{Context, Result};
 use futures_util::StreamExt;
 use serde::Deserialize;
+use sea_orm::ConnectionTrait;
+use sea_orm::sea_query::{Alias, Expr, Query};
 use tauri::Manager;
 use tokio::net::TcpListener;
 use tokio_tungstenite::tungstenite::Message;
@@ -19,6 +21,10 @@ struct AnswerItem {
     #[serde(rename = "questionId")]
     question_id: String,
     answer: String,
+    #[serde(default)]
+    revision: Option<i64>,
+    #[serde(rename = "answerUpdatedAt", default)]
+    answer_updated_at: Option<i64>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -88,7 +94,7 @@ pub async fn start_ws_server(app_handle: tauri::AppHandle) -> Result<()> {
                 };
 
                 if let Message::Text(text) = message {
-                    if let Err(e) = handle_text_message(&app_handle, &peer_id, &text) {
+                    if let Err(e) = handle_text_message(&app_handle, &peer_id, &text).await {
                         eprintln!("[ws-server] invalid message from {}: {}", peer_addr, e);
                     }
                 }
@@ -115,7 +121,7 @@ pub fn send_exam_start_to_student(
     Ok(state.send_ws_text_to_student(&envelope.payload.student_id, text))
 }
 
-fn handle_text_message(app_handle: &tauri::AppHandle, peer_id: &str, text: &str) -> Result<()> {
+async fn handle_text_message(app_handle: &tauri::AppHandle, peer_id: &str, text: &str) -> Result<()> {
     let envelope: WsMessage<serde_json::Value> = decode_value_message(text)?;
     match envelope.r#type {
         MessageType::Heartbeat => {
@@ -134,6 +140,8 @@ fn handle_text_message(app_handle: &tauri::AppHandle, peer_id: &str, text: &str)
             let state = app_handle.state::<crate::state::AppState>();
             state.touch_connection(&payload.student_id, envelope.timestamp);
             state.bind_student_peer(&payload.student_id, peer_id);
+
+            persist_answer_sync(app_handle, &payload, envelope.timestamp).await?;
 
             if let Some(first) = payload.answers.first() {
                 println!(
@@ -157,4 +165,146 @@ fn handle_text_message(app_handle: &tauri::AppHandle, peer_id: &str, text: &str)
     }
 
     Ok(())
+}
+
+async fn persist_answer_sync(
+    app_handle: &tauri::AppHandle,
+    payload: &AnswerSyncPayload,
+    received_at: i64,
+) -> Result<()> {
+    let state = app_handle.state::<crate::state::AppState>();
+
+    let se = Alias::new("se");
+    let student_exam_query = Query::select()
+        .expr_as(Expr::col((se.clone(), Alias::new("id"))), Alias::new("id"))
+        .from_as(Alias::new("student_exams"), se.clone())
+        .and_where(Expr::cust(format!(
+            "exam_id = '{}'",
+            sql_escape(&payload.exam_id)
+        )))
+        .and_where(Expr::cust(format!(
+            "student_id = '{}'",
+            sql_escape(&payload.student_id)
+        )))
+        .limit(1)
+        .to_owned();
+
+    let Some(student_exam_row) = state.db.query_one(&student_exam_query).await? else {
+        return Ok(());
+    };
+    let student_exam_id: String = student_exam_row.try_get("", "id")?;
+
+    let q = Alias::new("q");
+    let total_questions_query = Query::select()
+        .expr_as(Expr::cust("COUNT(1)"), Alias::new("total_questions"))
+        .from_as(Alias::new("questions"), q.clone())
+        .and_where(Expr::cust(format!(
+            "exam_id = '{}'",
+            sql_escape(&payload.exam_id)
+        )))
+        .to_owned();
+    let total_questions = match state.db.query_one(&total_questions_query).await? {
+        Some(row) => row.try_get("", "total_questions").unwrap_or(0),
+        None => 0,
+    };
+
+    for item in &payload.answers {
+        let revision = std::cmp::max(item.revision.unwrap_or(1), 1);
+        let answer_updated_at = item.answer_updated_at.unwrap_or(received_at);
+
+        let escaped_id = sql_escape(&uuid::Uuid::new_v4().to_string());
+        let escaped_student_exam_id = sql_escape(&student_exam_id);
+        let escaped_student_id = sql_escape(&payload.student_id);
+        let escaped_exam_id = sql_escape(&payload.exam_id);
+        let escaped_question_id = sql_escape(&item.question_id);
+        let escaped_answer = sql_escape(&item.answer);
+
+        let upsert_sql = format!(
+            "INSERT INTO answer_sheets (id, student_exam_id, student_id, exam_id, question_id, answer, revision, answer_updated_at, received_at, synced_at) \
+             VALUES ('{}', '{}', '{}', '{}', '{}', '{}', {}, {}, {}, {}) \
+             ON CONFLICT(student_id, question_id) DO UPDATE SET \
+               student_exam_id = excluded.student_exam_id, \
+               exam_id = excluded.exam_id, \
+               answer = CASE WHEN excluded.revision >= COALESCE(answer_sheets.revision, 0) THEN excluded.answer ELSE answer_sheets.answer END, \
+               revision = CASE WHEN excluded.revision >= COALESCE(answer_sheets.revision, 0) THEN excluded.revision ELSE answer_sheets.revision END, \
+               answer_updated_at = CASE WHEN excluded.revision >= COALESCE(answer_sheets.revision, 0) THEN excluded.answer_updated_at ELSE answer_sheets.answer_updated_at END, \
+               received_at = excluded.received_at, \
+               synced_at = excluded.synced_at",
+            escaped_id,
+            escaped_student_exam_id,
+            escaped_student_id,
+            escaped_exam_id,
+            escaped_question_id,
+            escaped_answer,
+            revision,
+            answer_updated_at,
+            received_at,
+            received_at,
+        );
+
+        state.db.execute_unprepared(&upsert_sql).await?;
+    }
+
+    let ans = Alias::new("ans");
+    let answered_count_query = Query::select()
+        .expr_as(Expr::cust("COUNT(1)"), Alias::new("answered_count"))
+        .from_as(Alias::new("answer_sheets"), ans.clone())
+        .and_where(Expr::cust(format!(
+            "student_exam_id = '{}'",
+            sql_escape(&student_exam_id)
+        )))
+        .and_where(Expr::cust("answer IS NOT NULL"))
+        .and_where(Expr::cust("TRIM(answer) <> ''"))
+        .to_owned();
+    let answered_count = match state.db.query_one(&answered_count_query).await? {
+        Some(row) => row.try_get("", "answered_count").unwrap_or(0),
+        None => 0,
+    };
+
+    let progress_percent = if total_questions > 0 {
+        (answered_count * 100 / total_questions).clamp(0, 100)
+    } else {
+        0
+    };
+
+    let last_question_id = payload
+        .answers
+        .last()
+        .map(|item| item.question_id.clone());
+
+    let escaped_student_exam_id = sql_escape(&student_exam_id);
+    let escaped_exam_id = sql_escape(&payload.exam_id);
+    let escaped_student_id = sql_escape(&payload.student_id);
+    let last_question_sql = last_question_id
+        .map(|value| format!("'{}'", sql_escape(&value)))
+        .unwrap_or_else(|| "NULL".to_string());
+
+    let upsert_progress_sql = format!(
+        "INSERT INTO student_exam_progress (student_exam_id, exam_id, student_id, answered_count, total_questions, progress_percent, last_question_id, last_answer_at, updated_at) \
+         VALUES ('{}', '{}', '{}', {}, {}, {}, {}, {}, {}) \
+         ON CONFLICT(student_exam_id) DO UPDATE SET \
+           answered_count = excluded.answered_count, \
+           total_questions = excluded.total_questions, \
+           progress_percent = excluded.progress_percent, \
+           last_question_id = excluded.last_question_id, \
+           last_answer_at = excluded.last_answer_at, \
+           updated_at = excluded.updated_at",
+        escaped_student_exam_id,
+        escaped_exam_id,
+        escaped_student_id,
+        answered_count,
+        total_questions,
+        progress_percent,
+        last_question_sql,
+        received_at,
+        received_at,
+    );
+
+    state.db.execute_unprepared(&upsert_progress_sql).await?;
+
+    Ok(())
+}
+
+fn sql_escape(input: &str) -> String {
+    input.replace('\'', "''")
 }

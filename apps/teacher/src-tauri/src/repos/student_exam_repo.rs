@@ -4,6 +4,7 @@ use sea_orm::{
     ActiveModelTrait, ColumnTrait, ConnectionTrait, DatabaseConnection, EntityTrait, QueryFilter,
     ExprTrait, Set, TransactionTrait,
 };
+use std::collections::HashMap;
 
 use crate::models::student::Model as StudentModel;
 use crate::models::student_exam::{
@@ -166,4 +167,31 @@ pub async fn assign_devices_to_student_exams(
 
     txn.commit().await?;
     get_student_device_assignments_by_exam_id(db, exam_id).await
+}
+
+pub async fn get_student_answer_progress_by_exam_id(
+    db: &DatabaseConnection,
+    exam_id: &str,
+) -> Result<HashMap<String, (i64, i64, i64)>> {
+    let sep = Alias::new("sep");
+    let query = Query::select()
+        .column((sep.clone(), Alias::new("student_id")))
+        .column((sep.clone(), Alias::new("answered_count")))
+        .column((sep.clone(), Alias::new("total_questions")))
+        .column((sep.clone(), Alias::new("progress_percent")))
+        .from_as(Alias::new("student_exam_progress"), sep.clone())
+        .and_where(Expr::col((sep.clone(), Alias::new("exam_id"))).eq(exam_id))
+        .to_owned();
+
+    let rows = db.query_all(&query).await?;
+    let mut map = HashMap::with_capacity(rows.len());
+    for row in rows {
+        let student_id: String = row.try_get("", "student_id")?;
+        let answered_count: i64 = row.try_get("", "answered_count")?;
+        let total_questions: i64 = row.try_get("", "total_questions")?;
+        let progress_percent: i64 = row.try_get("", "progress_percent")?;
+        map.insert(student_id, (answered_count, total_questions, progress_percent));
+    }
+
+    Ok(map)
 }

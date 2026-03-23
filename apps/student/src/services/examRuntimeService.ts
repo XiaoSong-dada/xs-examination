@@ -4,3 +4,17 @@ import type { CurrentExamBundle } from "@/types/main";
 export async function getCurrentExamBundle(): Promise<CurrentExamBundle> {
   return invoke<CurrentExamBundle>("get_current_exam_bundle");
 }
+
+export async function sendAnswerSync(
+  examId: string,
+  studentId: string,
+  questionId: string,
+  answer: string,
+): Promise<string> {
+  return invoke<string>("send_answer_sync", {
+    exam_id: examId,
+    student_id: studentId,
+    question_id: questionId,
+    answer,
+  });
+}

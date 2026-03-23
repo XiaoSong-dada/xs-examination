@@ -187,6 +187,8 @@ pub fn build_answer_sync_message(
     student_id: &str,
     question_id: &str,
     answer: &str,
+    revision: i64,
+    answer_updated_at: i64,
 ) -> Result<String> {
     let payload = json!({
         "examId": exam_id,
@@ -194,7 +196,9 @@ pub fn build_answer_sync_message(
         "answers": [
             {
                 "questionId": question_id,
-                "answer": answer
+                "answer": answer,
+                "revision": revision,
+                "answerUpdatedAt": answer_updated_at
             }
         ]
     });

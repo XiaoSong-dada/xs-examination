@@ -75,6 +75,7 @@ pub async fn list_student_device_connection_status_by_exam_id(
 ) -> Result<Vec<student_exam_schema::StudentDeviceConnectionStatusDto>> {
     let assignments =
         student_exam_repo::get_student_device_assignments_by_exam_id(db, &exam_id).await?;
+    let progress_map = student_exam_repo::get_student_answer_progress_by_exam_id(db, &exam_id).await?;
     let now = now_ms();
 
     Ok(assignments
@@ -83,6 +84,8 @@ pub async fn list_student_device_connection_status_by_exam_id(
             let last_heartbeat_at = connection_map.get(&item.student_id).copied();
             let (connection_status, has_heartbeat_seen) =
                 derive_connection_status(item.ip_addr.as_deref(), last_heartbeat_at, now);
+            let (answered_count, total_questions, progress_percent) =
+                progress_map.get(&item.student_id).copied().unwrap_or((0, 0, 0));
 
             student_exam_schema::StudentDeviceConnectionStatusDto {
                 student_exam_id: item.student_exam_id,
@@ -94,6 +97,9 @@ pub async fn list_student_device_connection_status_by_exam_id(
                 connection_status,
                 last_heartbeat_at,
                 has_heartbeat_seen,
+                answered_count,
+                total_questions,
+                progress_percent,
             }
         })
         .collect())

@@ -4,9 +4,11 @@ import { Button } from "antd";
 import AnswerList from "../../components/ExamContent/AnswerList";
 import ImageList from "../../components/ExamContent/ImageList";
 import { useExamStore } from "@/store/examStore";
+import { sendAnswerSync } from "@/services/examRuntimeService";
 
 export default function ExamPage() {
   const questions = useExamStore((s) => s.questions);
+  const currentSession = useExamStore((s) => s.currentSession);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [selectedAnswers, setSelectedAnswers] = useState<Record<string, number>>(
     {},
@@ -27,6 +29,22 @@ export default function ExamPage() {
       ...prev,
       [currentQuestion.id]: optionIndex,
     }));
+
+    const option = currentQuestion.options[optionIndex];
+    const answerValue = option?.key || `${optionIndex + 1}`;
+
+    if (!currentSession) {
+      return;
+    }
+
+    void sendAnswerSync(
+      currentSession.examId,
+      currentSession.studentId,
+      currentQuestion.id,
+      answerValue,
+    ).catch((error) => {
+      console.error("[ExamPage] 答案同步失败", error);
+    });
   };
 
   return (

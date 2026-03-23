@@ -104,4 +104,7 @@ pub struct StudentDeviceConnectionStatusDto {
     pub connection_status: String,
     pub last_heartbeat_at: Option<i64>,
     pub has_heartbeat_seen: bool,
+    pub answered_count: i64,
+    pub total_questions: i64,
+    pub progress_percent: i64,
 }

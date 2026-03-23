@@ -2,9 +2,9 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import * as XLSX from "xlsx";
 
 import { useAllExamList } from "@/hooks/useExam";
-import { useExamStudents } from "@/hooks/useExamStudents";
 import { getExamById, updateExam } from "@/services/examService";
-import type { StudentListItem } from "@/types/main";
+import { getStudentDeviceConnectionStatusByExamId } from "@/services/studentService";
+import type { StudentDeviceConnectionStatusItem } from "@/types/main";
 
 export interface ReportTableItem {
   id: string;
@@ -19,11 +19,8 @@ export interface ReportTableItem {
  */
 export function useReport() {
   const { exams, loading: examLoading } = useAllExamList();
-  const {
-    students,
-    loading: studentLoading,
-    fetchStudentsByExamId,
-  } = useExamStudents();
+  const [students, setStudents] = useState<StudentDeviceConnectionStatusItem[]>([]);
+  const [tableLoading, setTableLoading] = useState(false);
 
   const [selectedExamId, setSelectedExamId] = useState<string>();
   const [exporting, setExporting] = useState(false);
@@ -35,8 +32,19 @@ export function useReport() {
   }, [exams, selectedExamId]);
 
   const refresh = useCallback(async () => {
-    await fetchStudentsByExamId(selectedExamId);
-  }, [fetchStudentsByExamId, selectedExamId]);
+    if (!selectedExamId) {
+      setStudents([]);
+      return;
+    }
+
+    setTableLoading(true);
+    try {
+      const list = await getStudentDeviceConnectionStatusByExamId(selectedExamId);
+      setStudents(list);
+    } finally {
+      setTableLoading(false);
+    }
+  }, [selectedExamId]);
 
   useEffect(() => {
     void refresh();
@@ -54,11 +62,11 @@ export function useReport() {
 
   const tableData = useMemo<ReportTableItem[]>(
     () =>
-      students.map((student: StudentListItem) => ({
-        id: student.id,
-        name: student.name,
-        deviceIp: "-",
-        answerProgress: 0,
+      students.map((student: StudentDeviceConnectionStatusItem) => ({
+        id: student.student_id,
+        name: student.student_name,
+        deviceIp: student.ip_addr ?? "-",
+        answerProgress: student.progress_percent ?? 0,
         score: 0,
       })),
     [students],
@@ -113,7 +121,7 @@ export function useReport() {
     examOptions,
     examLoading,
     tableData,
-    tableLoading: studentLoading,
+    tableLoading,
     exporting,
     exportReport,
     refresh,
