@@ -32,9 +32,10 @@
 5. 学生端答题页选择某个选项时，`pages/Exam/index.tsx` 调用前端 service `sendAnswerSync`。
 6. 学生端 Rust `commands.rs::send_answer_sync` 先按题 upsert 本地 `local_answers`，再写入一条 `sync_outbox` 记录。
 7. 若当前 WebSocket 发送通道可用，学生端通过 `network/ws_client.rs::build_answer_sync_message` 构造 `ANSWER_SYNC` 并立即发往教师端。
-8. 教师端 `network/ws_server.rs` 收到 `ANSWER_SYNC` 后，调用 `persist_answer_sync`，把最新答案 upsert 到 `answer_sheets`。
-9. 同一个教师端处理链里，`persist_answer_sync` 会基于 `answer_sheets` 重新计算该 `student_exam` 的 `answered_count / total_questions / progress_percent`，再 upsert 到 `student_exam_progress`。
-10. 教师端前端 `useMonitor.ts` 与 `useReport.ts` 继续通过 `get_student_device_connection_status_by_exam_id` 读取真实 `progress_percent`，分别渲染监考页和报告页。
+8. 教师端 `network/ws_server.rs` 收到 `ANSWER_SYNC` 后，调用 `persist_answer_sync`，把最新答案 upsert 到 `answer_sheets`，并返回 `ANSWER_SYNC_ACK`。
+9. 学生端收到 ACK 后才会回写本地同步状态：对成功题目标记 `synced`，对失败题目标记 `failed`，等待后续补发或重连自愈。
+10. 同一个教师端处理链里，`persist_answer_sync` 会基于 `answer_sheets` 重新计算该 `student_exam` 的 `answered_count / total_questions / progress_percent`，再 upsert 到 `student_exam_progress`。
+11. 教师端前端 `useMonitor.ts` 与 `useReport.ts` 继续通过 `get_student_device_connection_status_by_exam_id` 读取真实 `progress_percent`，分别渲染监考页和报告页。
 
 到第 6 步为止，已经完成“学生端每题最新答案先落本地”的最短本地闭环。
 
@@ -150,8 +151,9 @@ Hook 在：
 5. 写入一条 `sync_outbox` 记录，事件类型为 `ANSWER_SYNC`
 6. 若当前没有 WebSocket 发送通道，则直接返回“已保存到本地，等待连接恢复后同步”
 7. 若发送通道存在，则构造并发送 `ANSWER_SYNC`
-8. 发送成功后回写 `local_answers.sync_status = synced` 与 `last_synced_at`
-9. 同时把本次 `sync_outbox` 记录更新为 `synced`
+8. 发送成功后仅把 `sync_outbox` 更新为 `sent`
+9. 收到教师端 `ANSWER_SYNC_ACK` 后，按 `questionIds/failedQuestionIds` 分题回写本地状态
+10. 成功题目标记为 `synced`，失败题目标记为 `failed`，等待后续 flush 或重连后一轮 full 同步
 
 因此，学生端这次更新的真实出口首先是：
 
@@ -246,7 +248,7 @@ Hook 在：
 
 1. 连接考生设备
 2. 分发试卷
-3. `sync_outbox` 的完整自动补发重试循环
+3. 重连后一轮 full 同步与 `sync_outbox` 的完整自动补发重试循环
 4. 历史答案版本回放
 5. 自动交卷、强制交卷、暂停考试
 
@@ -254,4 +256,10 @@ Hook 在：
 
 ## 一句话总结
 
-教师端开始考试后，会经 `ExamManage/useExamManage/studentService -> start_exam_by_exam_id -> student_exam_service -> ws_server` 把 `EXAM_START` 下发给学生端；学生端 `ws_client` 收到后把本地 `exam_sessions` 标记为 `active`，随后答题页在每次选择答案时通过 `send_answer_sync` 先把最新答案落到本地 `local_answers` 与 `sync_outbox`，再通过 WebSocket 发送 `ANSWER_SYNC`；教师端 `ws_server` 收到后把最新答案 upsert 到 `answer_sheets`，再把进度聚合 upsert 到 `student_exam_progress`，最终由 Monitor 与 Report 统一读取真实 `progress_percent` 展示。
+教师端开始考试后，会经 `ExamManage/useExamManage/studentService -> start_exam_by_exam_id -> student_exam_service -> ws_server` 把 `EXAM_START` 下发给学生端；学生端 `ws_client` 收到后把本地 `exam_sessions` 标记为 `active`，随后答题页在每次选择答案时通过 `send_answer_sync` 先把最新答案落到本地 `local_answers` 与 `sync_outbox`，再通过 WebSocket 发送 `ANSWER_SYNC`；教师端 `ws_server` 收到后把最新答案 upsert 到 `answer_sheets`，返回分题结果的 `ANSWER_SYNC_ACK`，并把进度聚合 upsert 到 `student_exam_progress`，最终由 Monitor 与 Report 统一读取真实 `progress_percent` 展示。若连接在此过程中中断，则由重连链触发 full `ANSWER_SYNC` 与 `pending/failed` flush 完成后续自愈，详见 `e2e-minimal-answer-sync-ack-reconnect-chain.md`。
+
+## 相关阅读
+
+1. [重连后学生答案全量同步与 ACK 收敛计划](../plans/2026_03_23_重连后学生答案全量同步与ACK收敛计划.md)
+2. [学生端启动恢复与断线重连的最短 e2e 链路](./e2e-minimal-student-startup-reconnect-chain.md)
+3. [教师端异常恢复后学生端全量答案同步与 ACK 收敛最短 e2e 链路](./e2e-minimal-answer-sync-ack-reconnect-chain.md)
