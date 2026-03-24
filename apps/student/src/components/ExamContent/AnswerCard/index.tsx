@@ -1,7 +1,4 @@
-import {
-  LeftOutlined,
-  RightOutlined,
-} from "@ant-design/icons";
+import { LeftOutlined, RightOutlined } from "@ant-design/icons";
 import type { ExamAnswerCardProps } from "@/types/examCard";
 
 /**
@@ -21,11 +18,13 @@ export default function AnswerCard({
 
   if (collapsed) {
     return (
-      <aside className="relative flex h-full w-14 shrink-0 items-center justify-center rounded-2xl border border-gray-300 bg-white shadow-sm">
+      <aside className="relative flex h-full w-14 shrink-0 items-center justify-center rounded-2xl border border-slate-200 bg-white shadow-sm">
         <button
           type="button"
           onClick={onToggle}
-          className="flex h-full w-full items-center justify-center rounded-2xl text-slate-500 transition hover:bg-slate-200 hover:text-sky-600"
+          className="flex h-full w-full appearance-none items-center justify-center
+           rounded-2xl border-0 text-slate-500 outline-none bg-white
+           transition hover:bg-slate-50 hover:text-sky-600 focus:outline-none focus-visible:outline-none"
           aria-label="展开答题卡"
           title="展开答题卡"
         >
@@ -58,9 +57,10 @@ export default function AnswerCard({
       <div className="flex-1 overflow-y-auto px-5 py-4">
         <div className="mb-4 flex items-center justify-between rounded-2xl border border-slate-200 px-4 py-3 text-sm text-slate-600">
           <span>当前进度</span>
-          <span className="font-medium text-slate-900">第 {currentIndex + 1} 题</span>
+          <span className="font-medium text-slate-900">
+            第 {currentIndex + 1} 题
+          </span>
         </div>
-
         <div className="flex flex-wrap content-start justify-start gap-3">
           {questions.map((question, index) => {
             const isActive = index === currentIndex;
