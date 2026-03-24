@@ -13,6 +13,7 @@
 - 本仓库是一个 pnpm workspace monorepo：`apps/teacher` 和 `apps/student` 分别是独立的 Tauri 应用；`packages/shared-types` 当前仍保留在仓库中，但已确认不是现行代码路径依赖。
 - 每个应用都分为 `src` 下的 React 前端和 `src-tauri` 下的 Rust Tauri 后端。
 - 前端应通过 service 封装访问 Tauri。优先在 `src/services`、store 或 hook 中扩展调用链，避免在页面组件里直接散落 `invoke`。
+- 前端类型入口统一以各应用 `src/types` 为准；`services` 下的历史遗留类型不作为新增类型或查找类型的规范入口。
 - 当前跨端协议与载荷变更，优先核对两端各自的 `schemas`、`network`、前端 `services/types` 与正式文档，不要先假定 `packages/shared-types` 是共享协议的现行单一来源。
 - 数据库结构变更必须通过各应用 `src-tauri/migrations` 目录下的 SQL migration 文件完成。
 
