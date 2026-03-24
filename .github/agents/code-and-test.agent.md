@@ -36,7 +36,7 @@ user-invocable: true
 - 前端改动优先遵循现有 React、TypeScript、Zustand、Ant Design、Tauri IPC 封装模式。
 - Rust 改动优先遵循现有 schemas、service、repo、network、command 分层。
 - 涉及数据库结构变更时，优先通过 migration 落地，不在业务代码里隐式建表。
-- 涉及跨端协议或共享类型时，优先检查 packages/shared-types 与现有 schema 定义。
+- 涉及跨端协议或共享类型时，优先检查两端现有 schema、network、前端 service/type 定义；不要先假定 `packages/shared-types` 仍是现行来源。
 
 ## 禁止事项
 

@@ -163,8 +163,9 @@ pnpm --filter @xs/student tauri dev
 - `doc/PRD.md`：产品需求文档
 - `doc/TECH_DESIGN.md`：技术设计文档
 - `doc/RESEARCH.md`：需求调研记录
-- `.copilot/AGENTS.md`：项目 AI 协作规范
-- `.copilot/memorybank.md`：项目上下文记忆
+- `doc/project_dependency_topology.md`：项目依赖拓扑图与业务定位入口
+- `.github/copilot-instructions.md`：项目工作区规范入口
+- `.copilot/AGENTS.md`：历史 AI 规范文档（待迁移清理）
 
 ## 开发约定
 

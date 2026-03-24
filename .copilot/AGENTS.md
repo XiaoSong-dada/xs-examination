@@ -1,7 +1,23 @@
 # AGENTS — xs-examination AI 工作规范
 
 > 本文件定义了 AI 助手（GitHub Copilot / 其他 Agent）在本项目中的行为规范、编码约定与禁止事项。
-> 每次开始任务前必须阅读本文件、`memorybank.md` 与 `project-dependency-map.md`。
+> 本文件当前仅作为历史规范参考；正式入口以 `.github/copilot-instructions.md` 与 `doc/project_dependency_topology.md` 为准。
+
+## 迁移状态摘要
+
+| 主题 | 当前状态 | 现行入口 |
+|------|------|------|
+| 工作区全局规范 | 已迁移 | `.github/copilot-instructions.md` |
+| 前端边界规则 | 已迁移并重写 | `.github/instructions/frontend-boundaries.instructions.md` |
+| 前端目录职责与 JSDoc | 已迁移并重写 | `.github/instructions/frontend-structure-and-comments.instructions.md` |
+| 后端边界规则 | 已迁移并重写 | `.github/instructions/tauri-backend.instructions.md` |
+| 后端目录职责与 Rustdoc | 已迁移并重写 | `.github/instructions/backend-structure-and-comments.instructions.md` |
+| e2e 文档约定 | 已迁移 | `.github/instructions/e2e-docs.instructions.md` |
+| shared-types 现行入口口径 | 已废弃 | 以两端 `schemas`、`network`、前端 `services/types` 与正式文档为准 |
+| 旧技术栈版本锁定 | 已废弃 | 不再作为现行规范 |
+| 防作弊 / 里程碑 / 安全整段设定 | 待确认或已废弃 | 需以当前代码与正式文档复核 |
+
+> 使用方式：除非专门对照历史条目，否则不要再把本文件作为唯一规范来源；新增工作优先读取 `.github` 下的现行说明文件。
 
 ---
 
@@ -9,8 +25,8 @@
 
 在开始任何编码任务前，必须确认：
 
-- [ ] 已阅读 `.copilot/memorybank.md`，恢复项目上下文
-- [ ] 已阅读 `.copilot/project-dependency-map.md`，确认当前模块入口、扇入与扇出
+- [ ] 已阅读 `.github/copilot-instructions.md`，确认当前工作区规范入口
+- [ ] 已阅读 `doc/project_dependency_topology.md`，确认当前模块入口、扇入与扇出
 - [ ] 若任务命中已有业务闭环，已阅读 `doc/e2e/` 下对应的最短链路文档
 - [ ] 已确认当前工作的是 `teacher/` 端还是 `student/` 端
 - [ ] 已确认当前修改属于哪个版本里程碑（V1.0 / V1.5 / V2.0）

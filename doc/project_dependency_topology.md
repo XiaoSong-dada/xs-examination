@@ -1,8 +1,8 @@
-# 项目依赖图谱 — xs-examination
+# 项目依赖拓扑图
 
-> 目的：帮助 Agent 在开始任务前快速恢复“模块边界、扇入、扇出、入口链路”。
+> 目的：帮助开发与文档整理时快速恢复“模块边界、扇入、扇出、入口链路、优先阅读顺序”。
 >
-> 范围：本图谱只基于目录结构、入口文件、模块声明、路由配置、`package.json` 与浅层 import / module export 关系整理，不下钻业务实现。
+> 范围：本图谱基于目录结构、入口文件、模块声明、路由配置、package 依赖关系和当前已确认的链路事实整理，优先服务于定位与排查，不替代具体业务实现文档。
 
 ---
 
@@ -11,9 +11,15 @@
 开始任务前，优先回答这 4 个问题：
 
 1. 当前任务落在教师端还是学生端。
-2. 当前任务落在前端、Rust 后端，还是共享类型包。
-3. 变更入口是页面路由、Tauri IPC、后台网络任务，还是数据库/状态模块。
+2. 当前任务落在前端、Rust 后端，还是共享包与文档层。
+3. 变更入口是页面路由、Tauri IPC、后台网络任务，还是数据库或状态模块。
 4. 需要关注的是声明依赖，还是当前已观测到的结构依赖。
+
+当任务涉及业务逻辑、跨层调用、链路排查或文档更新时，优先按以下顺序阅读：
+
+1. 先阅读本拓扑图，确定入口模块、跨层边界和相关文档。
+2. 若本拓扑图已经给出该业务的最短 e2e 链路映射，再继续阅读对应的 `doc/e2e/*.md`。
+3. 若任务会改变入口、出口、关键持久化落点、主查询来源或页面验证面，处理完成后同步更新对应 e2e 文档和本拓扑图。
 
 ---
 
@@ -22,14 +28,18 @@
 本图谱主要依据以下结构入口整理：
 
 - 根工作区：`package.json`
-- 教师端前端：`apps/teacher/src/main.tsx` → `App.tsx` → `router/index.tsx`
-- 教师端 Rust：`apps/teacher/src-tauri/src/main.rs` → `lib.rs`
-- 学生端前端：`apps/student/src/main.tsx` → `App.tsx`
-- 学生端 Rust：`apps/student/src-tauri/src/main.rs` → `lib.rs`
-- 共享类型：`packages/shared-types/src/index.ts`
-- AI 约束：`.copilot/AGENTS.md`、`.copilot/memorybank.md`
+- 教师端前端：`apps/teacher/src/main.tsx` -> `App.tsx` -> `router/index.tsx`
+- 教师端 Rust：`apps/teacher/src-tauri/src/main.rs` -> `lib.rs`
+- 学生端前端：`apps/student/src/main.tsx` -> `App.tsx`
+- 学生端 Rust：`apps/student/src-tauri/src/main.rs` -> `lib.rs`
+- 共享类型包：`packages/shared-types/src/index.ts`
+- 正式规范入口：`.github/copilot-instructions.md`、`.github/instructions/*.instructions.md`
+- 现有业务链路文档：`doc/e2e/*.md`
 
-说明：下文的“扇入 / 扇出”以模块组为粒度，计数是结构级近似值，不是精确静态分析结果。
+说明：
+
+- 下文的“扇入 / 扇出”以模块组为粒度，属于结构级近似值，不是精确静态分析结果。
+- 本文已吸收旧 `.copilot/project-dependency-map.md` 的主要内容，但口径以当前 `.github + doc` 体系为准。
 
 ---
 
@@ -39,14 +49,15 @@
 
 | 模块 | 位置 | 角色 |
 |------|------|------|
-| root-workspace | `./` | pnpm monorepo 根，负责脚本编排 |
+| root-workspace | `./` | pnpm workspace 根，负责脚本编排 |
 | teacher-frontend | `apps/teacher/src` | 教师端 React UI |
 | teacher-rust | `apps/teacher/src-tauri/src` | 教师端 Tauri / Rust 后端 |
 | student-frontend | `apps/student/src` | 学生端 React UI |
 | student-rust | `apps/student/src-tauri/src` | 学生端 Tauri / Rust 后端 |
-| shared-types | `packages/shared-types/src` | 前端共享类型出口 |
-| docs | `doc` | PRD、技术设计、流程文档 |
-| copilot-meta | `.copilot` | Agent 启动规范与项目记忆 |
+| shared-types | `packages/shared-types/src` | 预留的跨端 TypeScript 共享类型出口 |
+| docs | `doc` | PRD、技术设计、实施计划、e2e 与依赖拓扑 |
+| github-customizations | `.github` | Copilot 工作区说明与按场景拆分的 instructions |
+| copilot-legacy | `.copilot` | 历史规范与资料来源，待逐步迁移清理 |
 
 ### 3.2 顶层依赖图
 
@@ -59,7 +70,8 @@ graph TD
     StudentRS[student-rust]
     Shared[shared-types]
     Docs[docs]
-    Copilot[copilot-meta]
+    GithubMeta[github-customizations]
+    Legacy[legacy-copilot-docs]
 
     Root --> TeacherFE
     Root --> StudentFE
@@ -67,14 +79,15 @@ graph TD
     StudentFE --> StudentRS
     TeacherFE -. workspace dependency .-> Shared
     StudentFE -. workspace dependency .-> Shared
-    Copilot -. guides .-> TeacherFE
-    Copilot -. guides .-> TeacherRS
-    Copilot -. guides .-> StudentFE
-    Copilot -. guides .-> StudentRS
+    GithubMeta -. guides .-> TeacherFE
+    GithubMeta -. guides .-> TeacherRS
+    GithubMeta -. guides .-> StudentFE
+    GithubMeta -. guides .-> StudentRS
     Docs -. architecture reference .-> TeacherFE
     Docs -. architecture reference .-> TeacherRS
     Docs -. architecture reference .-> StudentFE
     Docs -. architecture reference .-> StudentRS
+    Legacy -. historical source .-> Docs
 ```
 
 ### 3.3 顶层扇入 / 扇出
@@ -82,13 +95,14 @@ graph TD
 | 模块 | 扇入 | 扇出 |
 |------|------|------|
 | root-workspace | 0 | 2 个应用前端开发/构建脚本 |
-| teacher-frontend | root-workspace、copilot-meta、docs | teacher-rust、shared-types、React 生态依赖 |
-| teacher-rust | teacher-frontend、copilot-meta、docs | Tokio/Tauri/SeaORM/网络/状态模块 |
-| student-frontend | root-workspace、copilot-meta、docs | student-rust、shared-types、React 生态依赖 |
-| student-rust | student-frontend、copilot-meta、docs | Tauri/网络/状态/数据库模块 |
+| teacher-frontend | root-workspace、github-customizations、docs | teacher-rust、shared-types、React 生态依赖 |
+| teacher-rust | teacher-frontend、github-customizations、docs | Tokio/Tauri/SeaORM/网络/状态模块 |
+| student-frontend | root-workspace、github-customizations、docs | student-rust、shared-types、React 生态依赖 |
+| student-rust | student-frontend、github-customizations、docs | Tauri/网络/状态/数据库模块 |
 | shared-types | teacher-frontend、student-frontend（声明依赖） | 0 |
-| docs | 0 | 为 4 个业务模块提供架构约束 |
-| copilot-meta | 0 | 为 4 个业务模块提供任务入口约束 |
+| docs | 0 | 为 4 个业务模块提供架构约束与排查入口 |
+| github-customizations | 0 | 为 4 个业务模块提供任务入口规范 |
+| copilot-legacy | 0 | 为 docs 提供历史迁移来源 |
 
 ---
 
@@ -96,9 +110,9 @@ graph TD
 
 ### 4.1 入口链
 
-`main.tsx` → `App.tsx` → `router/index.tsx` → `layout/AppLayout.tsx` → `pages/*`
+`main.tsx` -> `App.tsx` -> `router/index.tsx` -> `layout/AppLayout.tsx` -> `pages/*`
 
-当前路由已观测页面：
+当前已观测页面：
 
 - Dashboard
 - Devices
@@ -166,7 +180,6 @@ graph TD
 - `pages/Monitor` 现在不再只按 `ip_addr` 推导在线状态，而是通过 `hooks/useMonitor.ts` 复用同一套状态查询链路，确保与分配页口径一致。
 - `pages/Monitor` 与 `pages/Report` 现在都不再使用硬编码 0 展示答题进度，而是分别通过 `hooks/useMonitor.ts`、`hooks/useReport.ts` 调用 `services/studentService.ts`，读取教师端 `get_student_device_connection_status_by_exam_id` 返回的真实 `progress_percent`。
 - `pages/ExamManage` 现在不仅负责考试状态展示，还通过 `hooks/useExamManage.ts` 调用 `services/studentService.ts` 触发“分发试卷”与“开始考试”两条链路；其中“分发试卷”已形成教师端前端 -> 教师端 Rust -> 学生端控制服务 -> 学生端本地落库的完整闭环。
-- 学生端 Header 里的考试标题与学生名称现在通过 `get_current_exam_bundle -> examStore -> AppHeader` 读取本地 `exam_sessions` 并在启动恢复后直接展示；教师端连接状态与连接中闪烁图标则通过 `get_teacher_runtime_status / ws_connected / ws_disconnected -> deviceStore -> AppHeader` 独立表达，不再作为业务会话信息的展示门控。
 - `pages/ExamManage` 的“设备状态”现已不再基于 `ip_addr` 做二态推断，而是复用 `get_student_device_connection_status_by_exam_id` 返回的四态结果，并按 5 秒轮询刷新，和 `DeviceAssign`、`Monitor` 保持一致口径。
 - 这意味着教师端前端里与“实时连接状态”最相关的页面已从单一的 `Monitor` 扩展为 `DeviceAssign + Monitor + ExamManage` 共用一套 `services -> teacher-rust` 调用路径；而“答题进度”这条链路也已收敛为 `Monitor + Report -> services/studentService.ts -> teacher-rust` 的统一查询口径。
 
@@ -194,10 +207,10 @@ graph TD
 补充定位：
 
 - 若任务是“分配页连接考生设备”，优先看 `pages/DeviceAssign`、`hooks/useDeviceAssign.ts`、`services/studentService.ts`。
-- 若任务是“连接后学生端为什么没有显示考试标题/学生名称”，除了分配页链路外，还要看 `apps/student/src/store/examStore.ts`、`apps/student/src/layout/AppHeader.tsx`、`apps/student/src-tauri/src/services/exam_runtime_service.rs`。
-- 若任务是“分配页/监考页连接状态不一致”，优先看 `hooks/useDeviceAssign.ts`、`hooks/useMonitor.ts`、`types/main.ts`。
-- 若任务是“考试管理页分发试卷 / 开始考试”，优先看 `pages/ExamManage`、`hooks/useExamManage.ts`、`services/studentService.ts`。
-- 若任务是“考试管理页设备状态不正确 / 与分配页监考页不一致”，优先看 `hooks/useExamManage.ts`、`hooks/useDeviceAssign.ts`、`services/studentService.ts`、`types/main.ts`。
+- 若任务是“连接后学生端为什么没有显示考试标题或学生名称”，除了分配页链路外，还要看 `apps/student/src/store/examStore.ts`、`apps/student/src/layout/AppHeader.tsx`、`apps/student/src-tauri/src/services/exam_runtime_service.rs`。
+- 若任务是“分配页或监考页连接状态不一致”，优先看 `hooks/useDeviceAssign.ts`、`hooks/useMonitor.ts`、`types/main.ts`。
+- 若任务是“考试管理页分发试卷或开始考试”，优先看 `pages/ExamManage`、`hooks/useExamManage.ts`、`services/studentService.ts`。
+- 若任务是“考试管理页设备状态不正确或与分配页监考页不一致”，优先看 `hooks/useExamManage.ts`、`hooks/useDeviceAssign.ts`、`services/studentService.ts`、`types/main.ts`。
 
 ### 4.6 说明
 
@@ -210,7 +223,7 @@ graph TD
 
 ### 5.1 入口链
 
-`main.rs` → `lib.rs` → `setup()` / `invoke_handler![]`
+`main.rs` -> `lib.rs` -> `setup()` / `invoke_handler![]`
 
 当前已观测到的启动点：
 
@@ -226,14 +239,14 @@ graph TD
 | controllers | `controllers/` | Tauri 命令控制层 |
 | services | `services/` | 业务服务层 |
 | repos | `repos/` | 数据访问层 |
-| models | `models/` | SeaORM/实体模型 |
+| models | `models/` | SeaORM / 实体模型 |
 | schemas | `schemas/` | DTO / 输入输出结构 |
 | network | `network/` | WS、mDNS、学生控制通信 |
 | network-transport | `network/transport/` | 对 tokio-tungstenite 与 TCP request-reply 的薄封装层 |
 | state | `state.rs` | 应用共享状态 |
 | db | `db/` | 连接与数据库基础设施 |
 | config | `config.rs` | 配置读取 |
-| crypto | `crypto.rs` | 加解密/签名能力 |
+| crypto | `crypto.rs` | 加解密与签名能力 |
 | utils | `utils/` | 通用工具 |
 
 ### 5.3 结构依赖图
@@ -306,7 +319,7 @@ graph TD
 - `question_controller`
 - `network_controller`
 
-其中 `student_exam_controller` 当前除了原有“按考试查询学生/分配设备”命令外，还新增了两条直接服务于分配页和监考页的命令：
+其中 `student_exam_controller` 当前除了原有“按考试查询学生 / 分配设备”命令外，还新增了两条直接服务于分配页和监考页的命令：
 
 - `connect_student_devices_by_exam_id`
 - `get_student_device_connection_status_by_exam_id`
@@ -324,7 +337,7 @@ graph TD
 
 - `connect_student_devices_by_exam_id` 当前除了下发教师端地址，还会读取考试详情，并把 `session_id/exam_id/exam_title/student_no/student_name/assigned_ip_addr` 一并塞进 `APPLY_TEACHER_ENDPOINTS` payload。
 - 这使得“分配页连接考生设备”链路已经从“仅地址链路”扩展成“地址链路 + 最小会话预热链路”。
-- `network/ws_server.rs` 现在不再只负责心跳在线态聚合，还会处理学生端 `ANSWER_SYNC` 消息，把最新答案 upsert 到 `answer_sheets`，并把监考/报告使用的进度聚合 upsert 到 `student_exam_progress`。
+- `network/ws_server.rs` 现在不再只负责心跳在线态聚合，还会处理学生端 `ANSWER_SYNC` 消息，把最新答案 upsert 到 `answer_sheets`，并把监考 / 报告使用的进度聚合 upsert 到 `student_exam_progress`。
 - `network/ws_server.rs` 现在还会基于落库结果返回细粒度 `ANSWER_SYNC_ACK`，其中成功题目与失败题目会分别回传给学生端，用于本地同步状态收敛。
 
 ### 5.6 快速定位
@@ -354,7 +367,7 @@ graph TD
 
 ### 6.1 入口链
 
-`main.tsx` → `App.tsx` → `layout/AppLayout.tsx` → `pages/Exam/index.tsx`
+`main.tsx` -> `App.tsx` -> `layout/AppLayout.tsx` -> `pages/Exam/index.tsx`
 
 当前学生端前端是单主页面结构，没有教师端那种完整路由树。
 
@@ -420,13 +433,13 @@ graph TD
 - 若任务是“设备 IP 获取 / Header 设备 IP 显示异常”，优先看 `layout/AppHeader.tsx`、`store/deviceStore.ts`、`services/deviceService.ts`。
 - 若任务是“为什么学生端显示未收到试卷 / 已收到试卷”，优先看 `App.tsx`、`store/examStore.ts`、`services/examRuntimeService.ts`。
 - 若任务是“为什么启动后 Header 没恢复考试标题或学生名称”，优先看 `layout/AppHeader.tsx`、`store/examStore.ts`、`commands.rs`、`services/exam_runtime_service.rs`。
-- 若任务是“为什么连接异常后没有进入重连中/没有闪烁图标”，优先看 `layout/AppHeader.tsx`、`store/deviceStore.ts`、`services/teacherEndpointService.ts`、学生端 `services/ws_reconnect_service.rs` 与 `network/ws_client.rs`。
+- 若任务是“为什么连接异常后没有进入重连中 / 没有闪烁图标”，优先看 `layout/AppHeader.tsx`、`store/deviceStore.ts`、`services/teacherEndpointService.ts`、学生端 `services/ws_reconnect_service.rs` 与 `network/ws_client.rs`。
 - 若任务是“为什么学生端答题后没有同步 / 重启后已答选项没有恢复”，优先看 `pages/Exam/index.tsx`、`services/examRuntimeService.ts`、`commands.rs`、`services/exam_runtime_service.rs`。
 
 ### 6.6 说明
 
 - 学生端前端同样声明依赖了 `@xs/shared-types`，但当前结构扫描未看到明显实际 import。
-- 当前结构更偏“单页考试壳 + store/service 桥接 Tauri”，复杂度明显低于教师端前端。
+- 当前结构更偏“单页考试壳 + store / service 桥接 Tauri”，复杂度明显低于教师端前端。
 - 设备 IP 现在已形成稳定链路：`AppHeader -> deviceStore.initDeviceInfo -> services/deviceService.ts -> get_device_runtime_status/device_ip_updated -> student-rust`，不再依赖组件层直接感知后端事件。
 - 学生端答题页现在已经不再只是 React 内存态：`pages/Exam/index.tsx` 会在选项变化时调用 `sendAnswerSync`，并在挂载后通过 `getCurrentSessionAnswers` 回填 `selectedAnswers`，把本地 `local_answers` 恢复到页面状态。
 
@@ -436,7 +449,7 @@ graph TD
 
 ### 7.1 入口链
 
-`main.rs` → `lib.rs` → `setup()` / `invoke_handler![]`
+`main.rs` -> `lib.rs` -> `setup()` / `invoke_handler![]`
 
 当前已观测后台启动点：
 
@@ -543,9 +556,9 @@ graph TD
 - 若任务是“IPC 命令与前端桥接”，先看 `commands.rs` 与 `controllers/`。
 - 若任务是“学生端为何收不到试卷”，先看 `network/control_server.rs`、`services/exam_runtime_service.rs`、`commands.rs`，确认 `DISTRIBUTE_EXAM_PAPER` 是否收到、`exam_sessions/exam_snapshots` 是否落库、`get_current_exam_bundle` 是否能读到数据。
 - 若任务是“学生端连接设备时是否已经建立本地会话”，先看 `network/control_server.rs` 中 `APPLY_TEACHER_ENDPOINTS` 分支和 `services/exam_runtime_service.rs::upsert_connected_session`。
-- 若任务是“为什么同 exam_id 再发卷没有覆盖本地考试标题/学生信息”，先看 `services/exam_runtime_service.rs::upsert_distribution` 中按 `exam_id` 的保护逻辑。
+- 若任务是“为什么同 exam_id 再发卷没有覆盖本地考试标题 / 学生信息”，先看 `services/exam_runtime_service.rs::upsert_distribution` 中按 `exam_id` 的保护逻辑。
 - 若任务是“为什么 discovery 回包 IP 和 Header 设备 IP 不一致”，先核对两条链是否都已改为复用 `network/device_network.rs::resolve_device_ip`，以及前端是否已通过 `device_ip_updated` 事件刷新 `deviceStore.ip`。
-- 若任务是“学生端答案没有发到教师端 / ACK 失败后状态不收敛”，先看 `commands.rs::send_answer_sync`、`network/ws_client.rs`（`AnswerSyncAck` 处理、重连后 full sync、pending/failed flush）与教师端 `network/ws_server.rs` 的 `ANSWER_SYNC/ANSWER_SYNC_ACK` 分支。
+- 若任务是“学生端答案没有发到教师端 / ACK 失败后状态不收敛”，先看 `commands.rs::send_answer_sync`、`network/ws_client.rs` 的 `AnswerSyncAck` 处理、重连后 full sync、pending/failed flush，以及教师端 `network/ws_server.rs` 的 `ANSWER_SYNC/ANSWER_SYNC_ACK` 分支。
 - 若任务是“同一教师 endpoint 下 student_id 切换后为何仍串用旧连接 / 旧会话”，先看 `services/ws_reconnect_service.rs`、`network/ws_client.rs` 与 `state.rs` 中 reconnect target 切换、强制断线和 full sync 去重逻辑。
 - 若任务是“学生端重启后答题进度消失”，先看 `services/exam_runtime_service.rs::get_current_session_answers`、`commands.rs::get_current_session_answers` 与前端 `pages/Exam/index.tsx` 的本地答案回填逻辑。
 
@@ -572,6 +585,7 @@ graph TD
 
 - 从声明依赖看，`shared-types` 是跨端协议与核心业务类型的目标汇聚点。
 - 从当前结构观测看，两端前端源码仍大量使用各自本地 `types/main.ts`，所以共享类型包仍处在“入口已预留、实际收敛未完成”的状态。
+- 当前在 `apps/**` 源码范围内没有检索到对 `@xs/shared-types` 的实际 import，因此它更接近待确认是否保留的预留层，而不是当前主链路依赖。
 
 ---
 
@@ -579,16 +593,16 @@ graph TD
 
 ### 9.1 声明依赖
 
-- 根工作区通过 pnpm script 调度教师端和学生端开发/构建。
+- 根工作区通过 pnpm script 调度教师端和学生端开发 / 构建。
 - 教师端前端和学生端前端都在 `package.json` 中声明依赖 `@xs/shared-types`。
 - 两端 Tauri Rust 后端各自通过 `lib.rs` 暴露内部模块。
 
 ### 9.2 当前已观测结构依赖
 
-- 教师端前端的主边界是：`pages` → `hooks` / `services` → `@tauri-apps/api` → 教师端 Rust。
-- 教师端 Rust 的主边界是：`entry` → `controllers` → `services` → `repos` / `models`。
+- 教师端前端的主边界是：`pages` -> `hooks` / `services` -> `@tauri-apps/api` -> 教师端 Rust。
+- 教师端 Rust 的主边界是：`entry` -> `controllers` -> `services` -> `repos` / `models`。
 - 学生端前端的主边界是：`App` / `layout` / `store` 的轻量结构。
-- 学生端 Rust 的主边界是：`entry` → `commands` / `network` → `services` / `db`。
+- 学生端 Rust 的主边界是：`entry` -> `commands` / `network` -> `services` / `db`。
 - `shared-types` 已具备跨端收敛位置，但当前实际代码耦合尚未完全收口到该包。
 
 ---
@@ -600,7 +614,7 @@ graph TD
 | 关键词 | 首选模块 |
 |------|------|
 | 考试列表 / 考试创建 / 考试管理 | teacher-frontend `pages/` + `hooks/useExam*.ts` + `services/examService.ts` |
-| 学生导入 / 学生分配 / 设备列表 | teacher-frontend `pages/Students*` / `pages/Devices*` + 对应 hooks/services |
+| 学生导入 / 学生分配 / 设备列表 | teacher-frontend `pages/Students*` / `pages/Devices*` + 对应 hooks / services |
 | 实时监考 / 在线学生 | teacher-frontend `pages/Monitor` + teacher-rust `network/` + `controllers/network_controller.rs` |
 | WebSocket / 心跳 / 广播 | teacher-rust `network/ws_server.rs` 或 student-rust `network/ws_client.rs` |
 | 教师地址下发 / 控制服务 | student-rust `network/control_server.rs` + `services/teacher_endpoints_service.rs` |
@@ -636,8 +650,8 @@ graph TD
 | 分配页连接考生设备并在学生端预写入会话 | 适合排查 `APPLY_TEACHER_ENDPOINTS`、学生端 `teacher_endpoints` 落库、`exam_sessions` 预写入和 Header 会话信息展示。 | `doc/e2e/e2e-minimal-connect-student-device-chain.md` |
 | 教师端分发试卷到学生端本地落库 | 适合排查 `DISTRIBUTE_EXAM_PAPER` 控制链、`exam_sessions/exam_snapshots` 落库，以及“已收到试卷”页面状态的来源。 | `doc/e2e/e2e-minimal-exam-paper-distribution-chain.md` |
 | 学生端启动恢复 / 自动重连 / 本地会话与答案恢复 | 适合排查冷启动恢复、持续重连、同 endpoint 身份切换、页面答案回填，以及重连后的自愈前置链路。 | `doc/e2e/e2e-minimal-student-startup-reconnect-chain.md` |
-| 教师端开始考试后学生端按题同步答案并更新监考进度 | 适合排查 `EXAM_START`、按题 `ANSWER_SYNC`、细粒度 ACK、教师端进度聚合以及 Monitor/Report 的实时展示口径。 | `doc/e2e/e2e-minimal-answer-sync-progress-chain.md` |
-| 教师端恢复连接后学生端全量答案同步与 ACK 收敛 | 适合排查教师端异常关闭后的 full `ANSWER_SYNC`、`pending/failed` flush、ACK 收敛、部分成功/失败以及去重保护。 | `doc/e2e/e2e-minimal-answer-sync-ack-reconnect-chain.md` |
+| 教师端开始考试后学生端按题同步答案并更新监考进度 | 适合排查 `EXAM_START`、按题 `ANSWER_SYNC`、细粒度 ACK、教师端进度聚合以及 Monitor / Report 的实时展示口径。 | `doc/e2e/e2e-minimal-answer-sync-progress-chain.md` |
+| 教师端异常恢复后学生端全量答案同步与 ACK 收敛 | 适合排查 full `ANSWER_SYNC`、`pending/failed` flush、ACK 收敛、部分成功 / 失败以及去重保护。 | `doc/e2e/e2e-minimal-answer-sync-ack-reconnect-chain.md` |
 
 若现有任务改变了这些链路的入口、出口、关键持久化落点、主查询来源或页面验证面，应同步更新对应 e2e 文档，并回写本图谱中的业务映射。
 
@@ -649,8 +663,8 @@ graph TD
 2. 教师端 Rust 已形成 `controllers -> services -> repos/models` 的分层骨架，是当前扇入最集中的后端模块。
 3. 学生端前端目前仍是轻量单页结构，依赖边明显少于教师端。
 4. 学生端 Rust 的核心复杂度集中在 `network/`，而不是 `commands/`。
-5. `shared-types` 是预期中的跨端收敛中心，但当前实际代码仍有较多本地类型分散。
-6. `.copilot` 目录已经成为任务启动入口的一部分，开始任务前应同时阅读规范、记忆库和本图谱。
+5. `shared-types` 是预期中的跨端收敛中心，但当前实际代码仍有较多本地类型分散，且源码层尚无实际 import。
+6. 任务启动入口现应以 `.github/copilot-instructions.md`、`.github/instructions/*.instructions.md` 与本图谱为准；旧 `.copilot` 文档仅作为迁移来源保留。
 7. 教师端“实时连接状态”不再是 `Monitor` 页独有逻辑，而是 `DeviceAssign + Monitor + ExamManage` 共用的跨层链路：前端 hooks -> `studentService.ts` -> `student_exam_controller` -> `student_exam_service` -> `state.connections`。
 8. 这条新链路的关键主键是 `student_id`，不是 `device_id`；如果连接下发或心跳聚合时混用两者，会出现“终端有心跳、UI 仍显示未连接”的典型错位问题。
 9. “连接考生设备”已不再只是教师地址下发链路：教师端 `DeviceAssign/useDeviceAssign/studentService` -> 教师端 `student_exam_controller/student_control_client` -> 学生端 `control_server/teacher_endpoints_service/exam_runtime_service::upsert_connected_session` -> 学生端前端 `get_current_exam_bundle/examStore/AppHeader`，形成“连接即预写入会话”的完整闭环。
@@ -661,8 +675,18 @@ graph TD
 14. 学生端 Header 当前已经不再依赖 `deviceStore.assignedStudent` 承载业务会话数据，而是通过 `examStore.currentSession` 读取考试标题和学生名称；教师端连接状态改为独立显示，不再作为业务会话信息的展示门控。
 15. 第二阶段已在学生端 `upsert_distribution` 中落地按 `exam_id` 的保护逻辑：命中同 `exam_id` 时保留本地 `exam_sessions` 基础信息，只更新或写入 `exam_snapshots`。
 16. 2026-03-22 起，学生端启动后会通过 `lib.rs -> ws_reconnect_service::bootstrap_from_local_state` 读取本地 `teacher_endpoints(is_master)` 与最近 `exam_sessions.student_id` 自动恢复连接目标；后续由 `ws_reconnect_service` 统一承接首次连接失败重试、断线后持续重连以及目标 endpoint 切换。
-17. 考试管理页现已把原先基于 `ip_addr` 的“已连接/未连接”二态展示替换为统一四态“设备状态”，并按 5 秒轮询复用同一状态查询链路，因此三个页面的状态口径已经完成前端统一。
-18. 2026-03-20 起，两端 Rust 网络层新增 `network/transport` 子层：教师端 `ws_server/student_control_client` 与学生端 `ws_client/control_server` 不再直接承载全部底层收发细节，而是把 WebSocket 握手/写循环与 TCP request-reply 的 connect、timeout、read/write 边界逐步下沉到 transport 薄封装。
+17. 考试管理页现已把原先基于 `ip_addr` 的“已连接 / 未连接”二态展示替换为统一四态“设备状态”，并按 5 秒轮询复用同一状态查询链路，因此三个页面的状态口径已经完成前端统一。
+18. 2026-03-20 起，两端 Rust 网络层新增 `network/transport` 子层：教师端 `ws_server/student_control_client` 与学生端 `ws_client/control_server` 不再直接承载全部底层收发细节，而是把 WebSocket 握手 / 写循环与 TCP request-reply 的 connect、timeout、read/write 边界逐步下沉到 transport 薄封装。
 19. 2026-03-21 起，学生端设备 IP 已形成独立调用链：前端 `deviceStore/deviceService` 通过 Tauri `get_device_runtime_status` 调用学生端 `controllers/device_controller.rs -> services/device_service.rs -> network/device_network.rs` 获取本机 IP；`discovery_listener.rs` 也复用同一工具生成 ACK 中的设备 IP，并通过 `device_ip_updated` 事件回流前端 Header。
 20. 2026-03-23 起，`ANSWER_SYNC_ACK` 已支持细粒度结果：教师端 ACK 会返回 `questionIds/failedQuestionIds/successCount/failedCount`，学生端按题分别执行 `mark_answers_synced` 与 `mark_answers_failed`，不再仅按整批成功或整批失败处理。
 21. 同日，学生端重连链与答案同步链已完成真正收敛：`ws_connected` 后会按当前会话触发一轮带冷却保护的 full `ANSWER_SYNC`，若同一 endpoint 下切换了 `student_id`，则会先强制断开旧连接再按新身份重连，避免心跳身份与答题会话串台。
+
+---
+
+## 12. 关联文档
+
+- 全局工作区说明：[.github/copilot-instructions.md](../.github/copilot-instructions.md)
+- E2E 业务链路目录：[doc/e2e](./e2e)
+- 实施计划目录：[doc/plans](./plans)
+- 规范迁移计划：[doc/plans/2026_03_24_规范文档迁移与依赖拓扑整理计划.md](./plans/2026_03_24_规范文档迁移与依赖拓扑整理计划.md)
+- 旧版依赖图谱来源：[.copilot/project-dependency-map.md](../.copilot/project-dependency-map.md)
