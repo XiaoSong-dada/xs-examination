@@ -12,19 +12,16 @@
 
 - 本仓库是一个 pnpm workspace monorepo：`apps/teacher` 和 `apps/student` 分别是独立的 Tauri 应用；`packages/shared-types` 当前仍保留在仓库中，但已确认不是现行代码路径依赖。
 - 每个应用都分为 `src` 下的 React 前端和 `src-tauri` 下的 Rust Tauri 后端。
-- 前端应通过 service 封装访问 Tauri。优先在 `src/services`、store 或 hook 中扩展调用链，避免在页面组件里直接散落 `invoke`。
-- 前端类型入口统一以各应用 `src/types` 为准；`services` 下的历史遗留类型不作为新增类型或查找类型的规范入口。
-- 当前跨端协议与载荷变更，优先核对两端各自的 `schemas`、`network`、前端 `services/types` 与正式文档，不要先假定 `packages/shared-types` 是共享协议的现行单一来源。
-- 数据库结构变更必须通过各应用 `src-tauri/migrations` 目录下的 SQL migration 文件完成。
+- 前端边界、类型入口与目录职责的细化规则，统一以下列拆分规范为准：`.github/instructions/frontend-boundaries.instructions.md`、`.github/instructions/frontend-structure-and-comments.instructions.md`。
+- 跨端协议、shared-types 与后端 DTO 的细化规则，统一以下列拆分规范为准：`.github/instructions/protocol-and-shared-types.instructions.md`、`.github/instructions/tauri-backend.instructions.md`、`.github/instructions/backend-structure-and-comments.instructions.md`。
 
 ## 约定与易错点
 
-- 两端前端都使用 `@` 指向 `src` 的路径别名；优先使用该别名，避免深层相对路径导入。
 - 教师端和学生端的 Vite 开发端口都是固定的，并启用了 `strictPort: true`：教师端为 `1420`，学生端为 `1430`。如果开发命令启动即失败，先检查端口冲突。
 - 若任务涉及业务逻辑、跨层调用、链路排查或入口定位，先阅读 `doc/project_dependency_topology.md`；如果拓扑图已映射对应业务的最短 e2e 文档，再继续阅读对应 `doc/e2e/*.md`。
 - 学生端运行时以会话为中心。修改发卷、启动恢复、断线重连或答案同步时，不要只补 UI，要同时核对 `exam_sessions` 和 `exam_snapshots` 的前提是否仍成立。
 - 教师端答案同步的持久化依赖 SQLite migration，以及 `student_exams` 到 `answer_sheets` 的数据链路。修改同步逻辑前，应先核对相关 migration，不要先假定运行时数据结构正确。
-- 仓库中的计划文档与 e2e 最短链路文档是实际开发流程的一部分。若改动触及已有业务闭环，先阅读 `doc/e2e` 中对应文档；如果业务含义发生实质变化，也要同步更新文档。
+- 计划文档与 e2e 最短链路文档是实际开发流程的一部分；更新条件、命名和写法以 `.github/instructions/e2e-docs.instructions.md` 为准。
 
 ## 关键文档
 
