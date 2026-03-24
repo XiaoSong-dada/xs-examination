@@ -1,7 +1,7 @@
 # AGENTS — xs-examination AI 工作规范
 
 > 本文件定义了 AI 助手（GitHub Copilot / 其他 Agent）在本项目中的行为规范、编码约定与禁止事项。
-> 每次开始任务前必须阅读本文件、`memorybank.md` 与 `project-dependency-map.md`。
+> 本文件当前仅作为历史规范参考；正式入口以 `.github/copilot-instructions.md` 与 `doc/project_dependency_topology.md` 为准。
 
 ---
 
@@ -9,8 +9,8 @@
 
 在开始任何编码任务前，必须确认：
 
-- [ ] 已阅读 `.copilot/memorybank.md`，恢复项目上下文
-- [ ] 已阅读 `.copilot/project-dependency-map.md`，确认当前模块入口、扇入与扇出
+- [ ] 已阅读 `.github/copilot-instructions.md`，确认当前工作区规范入口
+- [ ] 已阅读 `doc/project_dependency_topology.md`，确认当前模块入口、扇入与扇出
 - [ ] 若任务命中已有业务闭环，已阅读 `doc/e2e/` 下对应的最短链路文档
 - [ ] 已确认当前工作的是 `teacher/` 端还是 `student/` 端
 - [ ] 已确认当前修改属于哪个版本里程碑（V1.0 / V1.5 / V2.0）
