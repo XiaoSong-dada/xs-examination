@@ -10,10 +10,10 @@
 
 ## 架构
 
-- 本仓库是一个 pnpm workspace monorepo：`apps/teacher` 和 `apps/student` 分别是独立的 Tauri 应用，`packages/shared-types` 用于存放跨端共享的 TypeScript 协议与类型。
+- 本仓库是一个 pnpm workspace monorepo：`apps/teacher` 和 `apps/student` 分别是独立的 Tauri 应用；`packages/shared-types` 当前仍保留在仓库中，但已确认不是现行代码路径依赖。
 - 每个应用都分为 `src` 下的 React 前端和 `src-tauri` 下的 Rust Tauri 后端。
 - 前端应通过 service 封装访问 Tauri。优先在 `src/services`、store 或 hook 中扩展调用链，避免在页面组件里直接散落 `invoke`。
-- 共享协议或跨端复用的 TypeScript 类型放在 `packages/shared-types`；仅限单端使用的视图模型和 UI 类型保留在各自应用内部。
+- 当前跨端协议与载荷变更，优先核对两端各自的 `schemas`、`network`、前端 `services/types` 与正式文档，不要先假定 `packages/shared-types` 是共享协议的现行单一来源。
 - 数据库结构变更必须通过各应用 `src-tauri/migrations` 目录下的 SQL migration 文件完成。
 
 ## 约定与易错点
@@ -45,6 +45,6 @@
 
 ## 后续定制建议
 
-- 更细粒度的规范已拆分到 `.github/instructions/`，修改前端、Tauri 后端、共享协议或 `doc/` 文档时，优先复用对应 instructions，而不是继续把细节堆回这个全局文件。
+- 更细粒度的规范已拆分到 `.github/instructions/`，修改前端、Tauri 后端、跨端协议或 `doc/` 文档时，优先复用对应 instructions，而不是继续把细节堆回这个全局文件。
 - 如果这份工作区说明逐渐变得过宽，应为 `apps/student/**`、`apps/teacher/**` 或 `doc/**` 拆分更聚焦的 `*.instructions.md`，而不是继续把所有内容堆进这个文件。
 - 这份文件只保留对绝大多数任务都有效的事实；更详细的内容优先通过链接指向现有文档，而不是在这里重复复制。
