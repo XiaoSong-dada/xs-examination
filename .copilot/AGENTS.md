@@ -3,6 +3,22 @@
 > 本文件定义了 AI 助手（GitHub Copilot / 其他 Agent）在本项目中的行为规范、编码约定与禁止事项。
 > 本文件当前仅作为历史规范参考；正式入口以 `.github/copilot-instructions.md` 与 `doc/project_dependency_topology.md` 为准。
 
+## 迁移状态摘要
+
+| 主题 | 当前状态 | 现行入口 |
+|------|------|------|
+| 工作区全局规范 | 已迁移 | `.github/copilot-instructions.md` |
+| 前端边界规则 | 已迁移并重写 | `.github/instructions/frontend-boundaries.instructions.md` |
+| 前端目录职责与 JSDoc | 已迁移并重写 | `.github/instructions/frontend-structure-and-comments.instructions.md` |
+| 后端边界规则 | 已迁移并重写 | `.github/instructions/tauri-backend.instructions.md` |
+| 后端目录职责与 Rustdoc | 已迁移并重写 | `.github/instructions/backend-structure-and-comments.instructions.md` |
+| e2e 文档约定 | 已迁移 | `.github/instructions/e2e-docs.instructions.md` |
+| shared-types 现行入口口径 | 已废弃 | 以两端 `schemas`、`network`、前端 `services/types` 与正式文档为准 |
+| 旧技术栈版本锁定 | 已废弃 | 不再作为现行规范 |
+| 防作弊 / 里程碑 / 安全整段设定 | 待确认或已废弃 | 需以当前代码与正式文档复核 |
+
+> 使用方式：除非专门对照历史条目，否则不要再把本文件作为唯一规范来源；新增工作优先读取 `.github` 下的现行说明文件。
+
 ---
 
 ## 0. 启动检查清单

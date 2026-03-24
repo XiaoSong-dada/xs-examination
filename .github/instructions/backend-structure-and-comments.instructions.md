@@ -12,7 +12,7 @@ applyTo: "apps/student/src-tauri/src/**, apps/teacher/src-tauri/src/**"
 
 ## 层次职责约定
 
-- `controllers/`：控制层。负责承接 Tauri 命令入口、参数接收、调用业务服务并返回前端可消费结果。教师端以 `lib.rs` 中统一注册的 controller 命令为主；学生端若仍通过 `commands.rs` 暴露命令，也视为同一职责的入口层。
+- `controllers/`：控制层。负责承接 Tauri 命令入口、参数接收、调用业务服务并返回前端可消费结果。教师端与学生端后续新增命令都应统一通过 `controllers/` 暴露，再由入口层分派到 `services/`。
 - `core/`：统一核心配置层。负责系统级设置、运行时核心配置、基础初始化辅助能力；不要把具体业务逻辑塞进 `core/`。
 - `models/`：ORM 映射层。负责数据库实体模型、表字段映射与持久化实体定义；不要把控制层 payload 或网络消息结构放进 `models/`。
 - `network/`：网络通讯层。负责 WebSocket、TCP、控制消息、广播、连接维护等通信逻辑；不要把纯数据库交互写在这里。
@@ -25,7 +25,8 @@ applyTo: "apps/student/src-tauri/src/**, apps/teacher/src-tauri/src/**"
 
 - 教师端当前已有 `controllers`、`core`、`models`、`network`、`repos`、`services`、`utils`、`schemas`，新增后端代码优先沿用这套职责落点。
 - 教师端 `lib.rs` 负责统一注册命令，因而 controller 是教师端 Tauri 命令的主入口；若新增前端可调用能力，优先从 controller 进入，再分派到 service。
-- 学生端当前以 `commands.rs` 作为主要命令入口，这一层在职责上等价于教师端的控制层入口；若学生端后续逐步细化 controller，仍应保持“入口层只做参数接收与分派”的边界。
+- 学生端当前存在 `commands.rs`，但该文件视为历史遗留入口；后续新增命令不再继续堆到 `commands.rs`，而应统一迁到 `controllers/` 作为正式控制层入口。
+- 学生端若仍需兼容旧 `commands.rs`，应把它视为过渡期转发层，而不是持续扩展的主入口。
 - 学生端 `layers/` 当前用于承载基础设施辅助分层；在职责映射上，可视为围绕配置、持久化等底层能力的支撑层，而不是 `services`、`repos`、`schemas` 的替代品。
 - 学生端当前 `repos/` 目录为空；若确实出现稳定的数据库交互逻辑，再把重复持久化访问下沉到 `repos/`，不要为了形式统一先空建复杂层次。
 
@@ -64,4 +65,5 @@ applyTo: "apps/student/src-tauri/src/**, apps/teacher/src-tauri/src/**"
 - `schemas/` 是实例层，不是 ORM 映射层；数据库实体与表映射不要放进 `schemas/`。
 - `models/` 是 ORM 映射层，不是前后端传输结构体入口；不要把普通命令入参、网络 payload 放进 `models/`。
 - `core/` 负责核心配置与初始化辅助，不是通用工具目录；纯工具函数仍应放在 `utils/`。
-- `controllers` 或 `commands` 只作为入口层，不承担完整业务实现；复杂流程必须下沉到 `services/`。
+- `controllers` 只作为入口层，不承担完整业务实现；复杂流程必须下沉到 `services/`。
+- 学生端 `commands.rs` 作为历史遗留入口不再扩展；后续新命令统一走 `controllers/`。
