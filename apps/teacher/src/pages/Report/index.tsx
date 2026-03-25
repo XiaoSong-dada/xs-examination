@@ -65,7 +65,7 @@ export function ReportPage() {
     if (savedPath) {
       message.success(`成绩报告导出成功，保存位置：${savedPath}`);
     } else {
-      message.error("成绩报告导出失败");
+      message.error("成绩报告导出失败，请先确认已统计且列表有学生成绩数据");
     }
   };
 

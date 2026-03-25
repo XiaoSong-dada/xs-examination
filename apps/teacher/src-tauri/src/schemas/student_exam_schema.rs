@@ -147,3 +147,13 @@ pub struct SaveScoreReportFileInput {
 pub struct SaveScoreReportFileOutput {
     pub path: String,
 }
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct ResolveReportDownloadPathInput {
+    pub file_name: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ResolveReportDownloadPathOutput {
+    pub path: String,
+}

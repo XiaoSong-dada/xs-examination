@@ -7,7 +7,7 @@ import {
   calculateStudentScoreSummaryByExamId,
   getStudentDeviceConnectionStatusByExamId,
   getStudentScoreSummaryByExamId,
-  saveScoreReportFile,
+  resolveReportDownloadPath,
 } from "@/services/studentService";
 import type { StudentDeviceConnectionStatusItem, StudentScoreSummaryItem } from "@/types/main";
 
@@ -126,6 +126,10 @@ export function useReport() {
       return undefined;
     }
 
+    if (tableData.length <= 0) {
+      return undefined;
+    }
+
     setExporting(true);
     try {
       const rows = tableData.map((item) => ({
@@ -140,11 +144,10 @@ export function useReport() {
       XLSX.utils.book_append_sheet(workbook, worksheet, "成绩报告");
 
       const fileName = `${selectedExamTitle}-成绩报告.xlsx`;
-      const workbookBytes = XLSX.write(workbook, {
+      XLSX.writeFile(workbook, fileName, {
         bookType: "xlsx",
-        type: "array",
-      }) as ArrayBuffer;
-      const saveResult = await saveScoreReportFile(fileName, Array.from(new Uint8Array(workbookBytes)));
+      });
+      const downloadPath = await resolveReportDownloadPath(fileName);
 
       if (selectedExamId) {
         const detail = await getExamById(selectedExamId);
@@ -163,7 +166,7 @@ export function useReport() {
         }
       }
 
-      return saveResult.path;
+      return downloadPath;
     } catch (error) {
       console.error("[useReport] 导出成绩失败", error);
       return undefined;

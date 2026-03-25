@@ -118,6 +118,22 @@ export async function saveScoreReportFile(
   });
 }
 
+/**
+ * 解析成绩报告导出后的预期落盘路径。
+ * @param fileName 导出文件名。
+ * @returns 返回系统下载目录下的完整文件路径（或回退目录路径）。
+ */
+export async function resolveReportDownloadPath(
+  fileName: string,
+): Promise<string> {
+  const result = await invoke<{ path: string }>("resolve_report_download_path", {
+    payload: {
+      file_name: fileName,
+    },
+  });
+  return result.path;
+}
+
 export async function distributeExamPapersByExamId(
   examId: string,
 ): Promise<DistributeExamPapersResult> {

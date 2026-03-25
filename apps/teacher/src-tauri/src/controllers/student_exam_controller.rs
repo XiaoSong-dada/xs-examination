@@ -297,6 +297,15 @@ pub async fn save_score_report_file(
     app_handle: tauri::AppHandle,
     payload: student_exam_schema::SaveScoreReportFileInput,
 ) -> Result<student_exam_schema::SaveScoreReportFileOutput, String> {
+    if payload.bytes.len() < 4 {
+        return Err("导出文件内容为空，请先确认有成绩数据后再导出".to_string());
+    }
+
+    // xlsx 是 zip 容器，文件头应为 PK。
+    if payload.bytes[0] != 0x50 || payload.bytes[1] != 0x4B {
+        return Err("导出文件格式异常，请重试导出".to_string());
+    }
+
     let base_dir = app_handle
         .path()
         .download_dir()
@@ -315,11 +324,51 @@ pub async fn save_score_report_file(
         })
         .collect::<String>();
 
-    let file_path = base_dir.join(sanitized_name);
+    let file_name = if sanitized_name.to_lowercase().ends_with(".xlsx") {
+        sanitized_name
+    } else {
+        format!("{}.xlsx", sanitized_name)
+    };
+
+    let file_path = base_dir.join(file_name);
     std::fs::write(&file_path, payload.bytes).map_err(|err| format!("写入导出文件失败: {}", err))?;
 
     Ok(student_exam_schema::SaveScoreReportFileOutput {
         path: file_path.to_string_lossy().to_string(),
+    })
+}
+
+/// 解析成绩报告导出的预期落盘路径。
+///
+/// # 参数
+/// * `app_handle` - Tauri 应用句柄，用于解析系统目录路径。
+/// * `payload` - 文件名。
+///
+/// # 返回值
+/// 返回系统下载目录下的完整文件路径；目录解析失败时返回错误字符串。
+#[tauri::command]
+pub async fn resolve_report_download_path(
+    app_handle: tauri::AppHandle,
+    payload: student_exam_schema::ResolveReportDownloadPathInput,
+) -> Result<student_exam_schema::ResolveReportDownloadPathOutput, String> {
+    let base_dir = app_handle
+        .path()
+        .download_dir()
+        .or_else(|_| app_handle.path().document_dir())
+        .or_else(|_| app_handle.path().app_data_dir())
+        .map_err(|err| format!("解析导出目录失败: {}", err))?;
+
+    let sanitized_name = payload
+        .file_name
+        .chars()
+        .map(|c| match c {
+            '\\' | '/' | ':' | '*' | '?' | '"' | '<' | '>' | '|' => '_',
+            _ => c,
+        })
+        .collect::<String>();
+
+    Ok(student_exam_schema::ResolveReportDownloadPathOutput {
+        path: base_dir.join(sanitized_name).to_string_lossy().to_string(),
     })
 }
 
