@@ -7,8 +7,10 @@ import { useTableHeight } from "@/hooks/useTableHeight";
 import type {MonitorTableItem} from "@/types/main";
 
 const linkStatusColorMap: Record<string, string> = {
-  已连接: "green",
-  未连接: "default",
+  正常: "green",
+  异常: "red",
+  未连接: "gold",
+  待分配: "default",
 };
 
 /**
@@ -42,7 +44,7 @@ export function MonitorPage() {
       width: 220,
     },
     {
-      title: "链接状态",
+      title: "连接状态",
       dataIndex: "linkStatus",
       key: "linkStatus",
       width: 160,

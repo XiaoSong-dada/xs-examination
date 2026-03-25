@@ -2,9 +2,14 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import * as XLSX from "xlsx";
 
 import { useAllExamList } from "@/hooks/useExam";
-import { useExamStudents } from "@/hooks/useExamStudents";
 import { getExamById, updateExam } from "@/services/examService";
-import type { StudentListItem } from "@/types/main";
+import {
+  calculateStudentScoreSummaryByExamId,
+  getStudentDeviceConnectionStatusByExamId,
+  getStudentScoreSummaryByExamId,
+  resolveReportDownloadPath,
+} from "@/services/studentService";
+import type { StudentDeviceConnectionStatusItem, StudentScoreSummaryItem } from "@/types/main";
 
 export interface ReportTableItem {
   id: string;
@@ -19,14 +24,14 @@ export interface ReportTableItem {
  */
 export function useReport() {
   const { exams, loading: examLoading } = useAllExamList();
-  const {
-    students,
-    loading: studentLoading,
-    fetchStudentsByExamId,
-  } = useExamStudents();
+  const [students, setStudents] = useState<StudentDeviceConnectionStatusItem[]>([]);
+  const [scoreSummaryMap, setScoreSummaryMap] = useState<Record<string, number>>({});
+  const [scoreSummaryCount, setScoreSummaryCount] = useState(0);
+  const [tableLoading, setTableLoading] = useState(false);
 
   const [selectedExamId, setSelectedExamId] = useState<string>();
   const [exporting, setExporting] = useState(false);
+  const [calculating, setCalculating] = useState(false);
 
   useEffect(() => {
     if (!selectedExamId && exams.length > 0) {
@@ -35,8 +40,34 @@ export function useReport() {
   }, [exams, selectedExamId]);
 
   const refresh = useCallback(async () => {
-    await fetchStudentsByExamId(selectedExamId);
-  }, [fetchStudentsByExamId, selectedExamId]);
+    if (!selectedExamId) {
+      setStudents([]);
+      setScoreSummaryMap({});
+      setScoreSummaryCount(0);
+      return;
+    }
+
+    setTableLoading(true);
+    try {
+      const [list, scoreSummaryList] = await Promise.all([
+        getStudentDeviceConnectionStatusByExamId(selectedExamId),
+        getStudentScoreSummaryByExamId(selectedExamId),
+      ]);
+      setStudents(list);
+
+      const scoreMap = scoreSummaryList.reduce<Record<string, number>>(
+        (acc, item: StudentScoreSummaryItem) => {
+          acc[item.student_id] = item.total_score;
+          return acc;
+        },
+        {},
+      );
+      setScoreSummaryMap(scoreMap);
+      setScoreSummaryCount(scoreSummaryList.length);
+    } finally {
+      setTableLoading(false);
+    }
+  }, [selectedExamId]);
 
   useEffect(() => {
     void refresh();
@@ -54,17 +85,51 @@ export function useReport() {
 
   const tableData = useMemo<ReportTableItem[]>(
     () =>
-      students.map((student: StudentListItem) => ({
-        id: student.id,
-        name: student.name,
-        deviceIp: "-",
-        answerProgress: 0,
-        score: 0,
+      students.map((student: StudentDeviceConnectionStatusItem) => ({
+        id: student.student_id,
+        name: student.student_name,
+        deviceIp: student.ip_addr ?? "-",
+        answerProgress: student.progress_percent ?? 0,
+        score: scoreSummaryMap[student.student_id] ?? 0,
       })),
-    [students],
+    [scoreSummaryMap, students],
   );
 
+  /**
+   * 触发成绩统计并刷新表格数据。
+   * @returns 统计成功返回 `true`，失败返回 `false`。
+   */
+  const calculateScores = useCallback(async () => {
+    if (!selectedExamId) {
+      return false;
+    }
+
+    setCalculating(true);
+    try {
+      await calculateStudentScoreSummaryByExamId(selectedExamId);
+      await refresh();
+      return true;
+    } catch (error) {
+      console.error("[useReport] 统计成绩失败", error);
+      return false;
+    } finally {
+      setCalculating(false);
+    }
+  }, [refresh, selectedExamId]);
+
+  /**
+   * 导出成绩报告到本机并返回保存路径。
+   * @returns 成功时返回文件绝对路径；失败时返回 `undefined`。
+   */
   const exportReport = useCallback(async () => {
+    if (!selectedExamId || scoreSummaryCount <= 0) {
+      return undefined;
+    }
+
+    if (tableData.length <= 0) {
+      return undefined;
+    }
+
     setExporting(true);
     try {
       const rows = tableData.map((item) => ({
@@ -79,7 +144,10 @@ export function useReport() {
       XLSX.utils.book_append_sheet(workbook, worksheet, "成绩报告");
 
       const fileName = `${selectedExamTitle}-成绩报告.xlsx`;
-      XLSX.writeFile(workbook, fileName);
+      XLSX.writeFile(workbook, fileName, {
+        bookType: "xlsx",
+      });
+      const downloadPath = await resolveReportDownloadPath(fileName);
 
       if (selectedExamId) {
         const detail = await getExamById(selectedExamId);
@@ -98,14 +166,14 @@ export function useReport() {
         }
       }
 
-      return true;
+      return downloadPath;
     } catch (error) {
       console.error("[useReport] 导出成绩失败", error);
-      return false;
+      return undefined;
     } finally {
       setExporting(false);
     }
-  }, [selectedExamId, selectedExamTitle, tableData]);
+  }, [scoreSummaryCount, selectedExamId, selectedExamTitle, tableData]);
 
   return {
     selectedExamId,
@@ -113,9 +181,12 @@ export function useReport() {
     examOptions,
     examLoading,
     tableData,
-    tableLoading: studentLoading,
+    tableLoading,
+    calculating,
     exporting,
+    calculateScores,
     exportReport,
+    scoreSummaryCount,
     refresh,
   } as const;
 }

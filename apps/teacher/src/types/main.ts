@@ -93,6 +93,61 @@ export interface StudentDeviceAssignPayloadItem {
   ip_addr?: string;
 }
 
+export type DeviceConnectionStatus = "待分配" | "未连接" | "正常" | "异常";
+
+export interface StudentDeviceConnectionStatusItem {
+  student_exam_id: string;
+  student_id: string;
+  student_no: string;
+  student_name: string;
+  ip_addr?: string;
+  device_name?: string;
+  connection_status: DeviceConnectionStatus;
+  last_heartbeat_at?: number;
+  has_heartbeat_seen: boolean;
+  answered_count: number;
+  total_questions: number;
+  progress_percent: number;
+}
+
+export interface StudentScoreSummaryItem {
+  student_id: string;
+  total_score: number;
+  is_passed: boolean;
+  graded_at: number;
+}
+
+export interface DistributeExamPapersResultItem {
+  student_exam_id: string;
+  student_id: string;
+  device_ip: string;
+  success: boolean;
+  message: string;
+  session_id?: string;
+}
+
+export interface DistributeExamPapersResult {
+  request_id: string;
+  total: number;
+  success_count: number;
+  results: DistributeExamPapersResultItem[];
+}
+
+export interface StartExamResult {
+  exam_id: string;
+  total_targets: number;
+  sent_count: number;
+}
+
+export interface EndExamResult {
+  request_id: string;
+  exam_id: string;
+  total_targets: number;
+  sent_count: number;
+  acked_count: number;
+  failed_count: number;
+}
+
 export interface UseStudentListResult {
   loading: boolean;
   inputKeyword: string;
@@ -124,6 +179,35 @@ export interface DeviceListItem {
   name: string;
 }
 
+export interface TeacherEndpointInput {
+  id: string;
+  endpoint: string;
+  name?: string;
+  remark?: string;
+  isMaster: boolean;
+}
+
+export interface PushTeacherEndpointsPayload {
+  deviceIds: string[];
+  endpoints: TeacherEndpointInput[];
+  controlPort?: number;
+}
+
+export interface PushTeacherEndpointsResultItem {
+  deviceId: string;
+  deviceIp: string;
+  success: boolean;
+  message: string;
+  connectedMaster?: string;
+}
+
+export interface PushTeacherEndpointsResult {
+  requestId: string;
+  total: number;
+  successCount: number;
+  results: PushTeacherEndpointsResultItem[];
+}
+
 export interface UseDeviceListResult {
   loading: boolean;
   inputIpKeyword: string;
@@ -151,6 +235,9 @@ export interface DeviceAssignRow {
   ip_addr?: string;
   device_name?: string;
   assigned: boolean;
+  connection_status: DeviceConnectionStatus;
+  last_heartbeat_at?: number;
+  has_heartbeat_seen: boolean;
 }
 
 export interface ExamOption {

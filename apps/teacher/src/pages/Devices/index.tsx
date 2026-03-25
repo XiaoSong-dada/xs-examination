@@ -1,4 +1,4 @@
-import { Button, Form, Input, message, Modal, Table } from "antd";
+import { Button, Form, Input, InputNumber, message, Modal, Table } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { useEffect, useRef, useState } from "react";
 
@@ -6,10 +6,16 @@ import { useDeviceList, useDeviceModal } from "@/hooks/useDevices";
 import {
   discoverStudentDevices,
   getDeviceById,
+  pushTeacherEndpointsToDevices,
   replaceDevicesByDiscovery,
 } from "@/services/deviceService";
 import { useTableHeight } from "@/hooks/useTableHeight";
-import type { IDeviceCreate, IDeviceEditor, DeviceListItem } from "@/types/main";
+import type {
+  DeviceListItem,
+  IDeviceCreate,
+  IDeviceEditor,
+  PushTeacherEndpointsPayload,
+} from "@/types/main";
 
 export function DevicesPage() {
   const {
@@ -35,8 +41,12 @@ export function DevicesPage() {
   const [discoveryVisible, setDiscoveryVisible] = useState(false);
   const [discovering, setDiscovering] = useState(false);
   const [replacing, setReplacing] = useState(false);
+  const [pushVisible, setPushVisible] = useState(false);
+  const [pushing, setPushing] = useState(false);
+  const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
   const [discoveredDevices, setDiscoveredDevices] = useState<Array<{ ip: string }>>([]);
   const [form] = Form.useForm();
+  const [pushForm] = Form.useForm();
 
   useEffect(() => {
     if (!deviceModal.visible) return;
@@ -198,6 +208,70 @@ export function DevicesPage() {
     },
   ];
 
+  const handleOpenPushModal = () => {
+    if (selectedRowKeys.length === 0) {
+      message.warning("请先勾选要下发配置的设备");
+      return;
+    }
+
+    pushForm.setFieldsValue({
+      controlPort: 38888,
+      masterEndpoint: "",
+      slaveEndpoint: "",
+      remark: "教师端统一下发",
+    });
+    setPushVisible(true);
+  };
+
+  const handlePushTeacherEndpoints = async () => {
+    try {
+      const values = await pushForm.validateFields();
+
+      const endpoints = [
+        {
+          id: crypto.randomUUID(),
+          endpoint: values.masterEndpoint.trim(),
+          name: "主教师端",
+          remark: values.remark?.trim() || undefined,
+          isMaster: true,
+        },
+      ];
+
+      const slaveEndpoint = values.slaveEndpoint?.trim();
+      if (slaveEndpoint) {
+        endpoints.push({
+          id: crypto.randomUUID(),
+          endpoint: slaveEndpoint,
+          name: "备用教师端",
+          remark: values.remark?.trim() || undefined,
+          isMaster: false,
+        });
+      }
+
+      const payload: PushTeacherEndpointsPayload = {
+        deviceIds: selectedRowKeys.map((id) => String(id)),
+        controlPort: values.controlPort,
+        endpoints,
+      };
+
+      setPushing(true);
+      const result = await pushTeacherEndpointsToDevices(payload);
+      setPushVisible(false);
+
+      message.success(
+        `下发完成：成功 ${result.successCount} / ${result.total}`,
+      );
+    } catch (error) {
+      if (error && typeof error === "object" && "errorFields" in error) {
+        return;
+      }
+      console.error("下发教师地址失败", error);
+      message.error("下发教师地址失败");
+    } finally {
+      setPushing(false);
+    }
+  };
+
   return (
     <div className="space-y-4 h-full">
       <div
@@ -241,6 +315,13 @@ export function DevicesPage() {
             <Button loading={discovering} onClick={() => void handleSearchDevices()}>
               搜索设备
             </Button>
+            <Button
+              type="primary"
+              disabled={selectedRowKeys.length === 0}
+              onClick={handleOpenPushModal}
+            >
+              下发教师地址
+            </Button>
           </div>
         </div>
 
@@ -249,6 +330,10 @@ export function DevicesPage() {
           loading={loading}
           dataSource={dataSource}
           columns={columns}
+          rowSelection={{
+            selectedRowKeys,
+            onChange: (keys) => setSelectedRowKeys(keys),
+          }}
           pagination={false}
           scroll={{ y: tableHeight }}
         />
@@ -308,6 +393,45 @@ export function DevicesPage() {
           locale={{ emptyText: "未发现设备" }}
           scroll={{ y: 360 }}
         />
+      </Modal>
+
+      <Modal
+        title="批量下发教师地址"
+        open={pushVisible}
+        onCancel={() => setPushVisible(false)}
+        onOk={() => void handlePushTeacherEndpoints()}
+        okText="确认下发"
+        cancelText="取消"
+        confirmLoading={pushing}
+      >
+        <Form form={pushForm} layout="vertical">
+          <Form.Item
+            name="masterEndpoint"
+            label="主教师端地址"
+            rules={[{ required: true, message: "请输入主教师端地址" }]}
+          >
+            <Input placeholder="例如 ws://192.168.1.10:18888" />
+          </Form.Item>
+
+          <Form.Item
+            name="slaveEndpoint"
+            label="备用教师端地址（可选）"
+          >
+            <Input placeholder="例如 ws://192.168.1.11:18888" />
+          </Form.Item>
+
+          <Form.Item
+            name="controlPort"
+            label="学生端控制端口"
+            rules={[{ required: true, message: "请输入控制端口" }]}
+          >
+            <InputNumber min={1} max={65535} style={{ width: "100%" }} />
+          </Form.Item>
+
+          <Form.Item name="remark" label="备注（可选）">
+            <Input placeholder="例如 2026 春季考试统一配置" />
+          </Form.Item>
+        </Form>
       </Modal>
     </div>
   );

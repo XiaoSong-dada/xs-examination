@@ -108,3 +108,24 @@ pub async fn update_exam(
 pub async fn delete_exam(db: &DatabaseConnection, id: String) -> Result<()> {
     exam_repo::delete_exam_by_id(db, &id).await
 }
+
+pub async fn update_exam_status(
+    db: &DatabaseConnection,
+    id: String,
+    status: String,
+) -> Result<ExamModel> {
+    let current = exam_repo::get_exam_by_id(db, &id).await?;
+    let payload = ExamWritePayload {
+        title: current.title,
+        description: current.description,
+        start_time: current.start_time,
+        end_time: current.end_time,
+        pass_score: current.pass_score,
+        status,
+        shuffle_questions: current.shuffle_questions,
+        shuffle_options: current.shuffle_options,
+    };
+
+    let now = Utc::now().timestamp_millis();
+    exam_repo::update_exam_by_id(db, &id, payload, now).await
+}

@@ -1,5 +1,6 @@
 pub mod commands;
 pub mod controllers;
+pub mod core;
 pub mod services;
 pub mod repos;
 pub mod models;
@@ -48,6 +49,7 @@ pub fn run() {
             controllers::device_controller::delete_device,
             controllers::device_controller::discover_student_devices,
             controllers::device_controller::replace_devices_by_discovery,
+            controllers::device_controller::push_teacher_endpoints_to_devices,
             controllers::student_controller::get_students,
             controllers::student_controller::get_student_by_id,
             controllers::student_controller::create_student,
@@ -58,6 +60,15 @@ pub fn run() {
             controllers::student_exam_controller::import_students_by_exam_id,
             controllers::student_exam_controller::get_student_device_assignments_by_exam_id,
             controllers::student_exam_controller::assign_devices_to_student_exams,
+            controllers::student_exam_controller::connect_student_devices_by_exam_id,
+            controllers::student_exam_controller::get_student_device_connection_status_by_exam_id,
+            controllers::student_exam_controller::get_student_score_summary_by_exam_id,
+            controllers::student_exam_controller::calculate_student_score_summary_by_exam_id,
+            controllers::student_exam_controller::save_score_report_file,
+            controllers::student_exam_controller::resolve_report_download_path,
+            controllers::student_exam_controller::distribute_exam_papers_by_exam_id,
+            controllers::student_exam_controller::start_exam_by_exam_id,
+            controllers::student_exam_controller::end_exam_by_exam_id,
             controllers::question_controller::get_questions,
             controllers::question_controller::bulk_import_questions,
             controllers::network_controller::get_online_students,

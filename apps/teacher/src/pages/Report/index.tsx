@@ -16,8 +16,11 @@ export function ReportPage() {
     examLoading,
     tableData,
     tableLoading,
+    calculating,
     exporting,
+    calculateScores,
     exportReport,
+    scoreSummaryCount,
   } = useReport();
 
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -53,11 +56,25 @@ export function ReportPage() {
   ];
 
   const handleExport = async () => {
-    const ok = await exportReport();
-    if (ok) {
-      message.success("成绩报告导出成功");
+    if (scoreSummaryCount <= 0) {
+      message.warning("请先点击统计成绩");
+      return;
+    }
+
+    const savedPath = await exportReport();
+    if (savedPath) {
+      message.success(`成绩报告导出成功，保存位置：${savedPath}`);
     } else {
-      message.error("成绩报告导出失败");
+      message.error("成绩报告导出失败，请先确认已统计且列表有学生成绩数据");
+    }
+  };
+
+  const handleCalculateScores = async () => {
+    const ok = await calculateScores();
+    if (ok) {
+      message.success("统计成绩成功");
+    } else {
+      message.error("统计成绩失败，仅已结束考试可统计");
     }
   };
 
@@ -79,7 +96,10 @@ export function ReportPage() {
             options={examOptions}
             onChange={setSelectedExamId}
           />
-          <Button type="primary" loading={exporting} onClick={() => void handleExport()}>
+          <Button type="primary" loading={calculating} onClick={() => void handleCalculateScores()}>
+            统计成绩
+          </Button>
+          <Button loading={exporting} onClick={() => void handleExport()}>
             导出成绩
           </Button>
         </div>

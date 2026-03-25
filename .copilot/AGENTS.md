@@ -1,7 +1,23 @@
 # AGENTS — xs-examination AI 工作规范
 
 > 本文件定义了 AI 助手（GitHub Copilot / 其他 Agent）在本项目中的行为规范、编码约定与禁止事项。
-> 每次开始任务前必须阅读本文件与 `memorybank.md`。
+> 本文件当前仅作为历史规范参考；正式入口以 `.github/copilot-instructions.md` 与 `doc/project_dependency_topology.md` 为准。
+
+## 迁移状态摘要
+
+| 主题 | 当前状态 | 现行入口 |
+|------|------|------|
+| 工作区全局规范 | 已迁移 | `.github/copilot-instructions.md` |
+| 前端边界规则 | 已迁移并重写 | `.github/instructions/frontend-boundaries.instructions.md` |
+| 前端目录职责与 JSDoc | 已迁移并重写 | `.github/instructions/frontend-structure-and-comments.instructions.md` |
+| 后端边界规则 | 已迁移并重写 | `.github/instructions/tauri-backend.instructions.md` |
+| 后端目录职责与 Rustdoc | 已迁移并重写 | `.github/instructions/backend-structure-and-comments.instructions.md` |
+| e2e 文档约定 | 已迁移 | `.github/instructions/e2e-docs.instructions.md` |
+| shared-types 现行入口口径 | 已废弃 | 以两端 `schemas`、`network`、前端 `services/types` 与正式文档为准 |
+| 旧技术栈版本锁定 | 已废弃 | 不再作为现行规范 |
+| 防作弊 / 里程碑 / 安全整段设定 | 待确认或已废弃 | 需以当前代码与正式文档复核 |
+
+> 使用方式：除非专门对照历史条目，否则不要再把本文件作为唯一规范来源；新增工作优先读取 `.github` 下的现行说明文件。
 
 ---
 
@@ -9,7 +25,9 @@
 
 在开始任何编码任务前，必须确认：
 
-- [ ] 已阅读 `.copilot/memorybank.md`，恢复项目上下文
+- [ ] 已阅读 `.github/copilot-instructions.md`，确认当前工作区规范入口
+- [ ] 已阅读 `doc/project_dependency_topology.md`，确认当前模块入口、扇入与扇出
+- [ ] 若任务命中已有业务闭环，已阅读 `doc/e2e/` 下对应的最短链路文档
 - [ ] 已确认当前工作的是 `teacher/` 端还是 `student/` 端
 - [ ] 已确认当前修改属于哪个版本里程碑（V1.0 / V1.5 / V2.0）
 - [ ] 未修改已定稿的技术栈选型（见下方禁止事项）
@@ -70,6 +88,12 @@
 | 结构体 / 枚举 | `PascalCase` | `ExamStatus`, `WsMessage` |
 
 > **新增约定**：所有用于前后端交互或控制层的纯数据结构（DTO、输入/输出 payload）应放在 `src-tauri/src/schemas/` 文件夹内，使用同名 `*_schema.rs` 文件管理。例如 `question_schema.rs` 存放与题目相关的 DTO。该目录仅包含结构体声明，不包含业务逻辑。
+>
+> **Rust 补充约定**：新增功能前必须优先检查 `src-tauri/src/utils/` 下是否已存在可复用函数；若逻辑具有跨模块复用价值，应优先沉淀到 `utils/`，避免在 controller、service、network、repo 中重复实现。
+>
+> **Rust 结构体放置约定**：除 SeaORM 实体模型、数据库实体映射及框架强约束类型外，业务层、控制层、通信层使用的结构体声明统一放在 `src-tauri/src/schemas/` 中管理，禁止将普通 DTO、输入输出参数或中间载荷分散声明在其他层级文件内。
+>
+> **环境变量约定**：与环境变量相关的默认值、读取入口和全局配置优先集中在 `src-tauri/src/core/setting.rs` 管理；开发前若需查找环境变量定义或读取方式，应先查看该文件，再决定是否补充 `utils/` 中的辅助函数。
 
 ### 共享类型包
 
@@ -282,6 +306,16 @@ pub async fn broadcast(sessions: &SessionMap, msg: &str) {
 - sqlx 仅用于迁移与连接期初始化，不承担业务 CRUD
 - 业务 CRUD 统一使用 SeaORM 实体模型与仓储层
 - **若需列出或检查数据库表结构**，优先在 `src-tauri/src/db/migrations/` 目录查找已有迁移定义；若无对应文件，再考虑从模型代码或运行时反查。
+
+---
+
+## 6.5 业务链路文档约定
+
+- `doc/e2e/` 目录中的文档用于沉淀“某个业务闭环的最短真实 e2e 链路”，用于快速定位入口、出口、跨端传输、数据库落点与页面验证面。
+- 若任务涉及已有业务链路，开始修改前必须先查找并阅读对应 e2e 文档；若图谱中已有“业务与 e2e 映射”，按映射优先打开对应文件。
+- 若本次改动影响了已有链路的入口、出口、关键持久化落点、主查询来源、运行态事件或页面验证面，必须同步更新对应 `doc/e2e/*.md`。
+- 若本次改动形成新的独立业务闭环，必须在 `doc/e2e/` 下新增一份最短链路文档，并同步更新 `.copilot/project-dependency-map.md` 中的“业务与 e2e 映射”。
+- e2e 文档命名保持 `e2e-minimal-<business>-chain.md` 风格，正文优先回答“入口在哪里、真实出口在哪里、最短调用链是什么、哪些内容不属于这条链路”。
 
 ---
 

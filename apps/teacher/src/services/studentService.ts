@@ -1,8 +1,14 @@
 import type {
+  DistributeExamPapersResult,
+  EndExamResult,
   IStudentCreate,
   IStudentEditor,
+  PushTeacherEndpointsResult,
+  StartExamResult,
+  StudentDeviceConnectionStatusItem,
   StudentDeviceAssignItem,
   StudentDeviceAssignPayloadItem,
+  StudentScoreSummaryItem,
   StudentListItem,
 } from "@/types/main";
 import { invoke } from "@tauri-apps/api/core";
@@ -46,6 +52,114 @@ export async function assignDevicesToStudentExams(
       exam_id: examId,
       assignments,
     },
+  });
+}
+
+export async function connectStudentDevicesByExamId(
+  examId: string,
+): Promise<PushTeacherEndpointsResult> {
+  return invoke<PushTeacherEndpointsResult>("connect_student_devices_by_exam_id", {
+    payload: { exam_id: examId },
+  });
+}
+
+export async function getStudentDeviceConnectionStatusByExamId(
+  examId: string,
+): Promise<StudentDeviceConnectionStatusItem[]> {
+  return invoke<StudentDeviceConnectionStatusItem[]>(
+    "get_student_device_connection_status_by_exam_id",
+    {
+      payload: { exam_id: examId },
+    },
+  );
+}
+
+/**
+ * 查询指定考试的成绩汇总结果。
+ * @param examId 考试 ID。
+ * @returns 返回已落库的学生总分列表。
+ */
+export async function getStudentScoreSummaryByExamId(
+  examId: string,
+): Promise<StudentScoreSummaryItem[]> {
+  return invoke<StudentScoreSummaryItem[]>("get_student_score_summary_by_exam_id", {
+    payload: { exam_id: examId },
+  });
+}
+
+/**
+ * 触发指定考试的成绩统计并覆盖写入数据库。
+ * @param examId 考试 ID。
+ * @returns 返回重算后的学生总分列表。
+ */
+export async function calculateStudentScoreSummaryByExamId(
+  examId: string,
+): Promise<StudentScoreSummaryItem[]> {
+  return invoke<StudentScoreSummaryItem[]>("calculate_student_score_summary_by_exam_id", {
+    payload: { exam_id: examId },
+  });
+}
+
+/**
+ * 将成绩报告二进制写入本机文件并返回保存路径。
+ * @param fileName 导出文件名。
+ * @param bytes xlsx 二进制字节数组。
+ * @returns 返回后端实际写入的绝对路径。
+ */
+export async function saveScoreReportFile(
+  fileName: string,
+  bytes: number[],
+): Promise<{ path: string }> {
+  return invoke<{ path: string }>("save_score_report_file", {
+    payload: {
+      file_name: fileName,
+      bytes,
+    },
+  });
+}
+
+/**
+ * 解析成绩报告导出后的预期落盘路径。
+ * @param fileName 导出文件名。
+ * @returns 返回系统下载目录下的完整文件路径（或回退目录路径）。
+ */
+export async function resolveReportDownloadPath(
+  fileName: string,
+): Promise<string> {
+  const result = await invoke<{ path: string }>("resolve_report_download_path", {
+    payload: {
+      file_name: fileName,
+    },
+  });
+  return result.path;
+}
+
+export async function distributeExamPapersByExamId(
+  examId: string,
+): Promise<DistributeExamPapersResult> {
+  return invoke<DistributeExamPapersResult>("distribute_exam_papers_by_exam_id", {
+    payload: { exam_id: examId },
+  });
+}
+
+export async function startExamByExamId(
+  examId: string,
+): Promise<StartExamResult> {
+  return invoke<StartExamResult>("start_exam_by_exam_id", {
+    payload: { exam_id: examId },
+  });
+}
+
+/**
+ * 调用教师端 `end_exam_by_exam_id` 命令，触发在线学生最终同步并结束考试。
+ * @param examId 考试 ID。
+ * @returns 结束考试下发与 ACK 聚合结果。
+ */
+export async function endExamByExamId(
+  examId: string,
+): Promise<EndExamResult> {
+  return invoke<EndExamResult>("end_exam_by_exam_id", {
+    payload: { exam_id: examId },
   });
 }
 

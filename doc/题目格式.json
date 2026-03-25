@@ -1,0 +1,84 @@
+{
+  "downloadedAt": 1774018922475,
+  "examMeta": {
+    "description": "测试的考试",
+    "endTime": null,
+    "id": "fdced221-d5e0-4b86-98fb-68adf079fa30",
+    "passScore": 60,
+    "shuffleOptions": 0,
+    "shuffleQuestions": 0,
+    "startTime": null,
+    "status": "active",
+    "title": "测试考试"
+  },
+  "expiresAt": null,
+  "questionsPayload": [
+    {
+      "content": "测试题目1",
+      "explanation": null,
+      "id": "import-1773415408698-0",
+      "options": [
+        { "key": "A", "text": "测试选项1" },
+        { "key": "B", "text": "测试选项1" },
+        { "key": "C", "text": "测试选项1" }
+      ],
+      "score": 3,
+      "seq": 1,
+      "type": "single"
+    },
+    {
+      "content": "测试题目2",
+      "explanation": null,
+      "id": "import-1773415408698-1",
+      "options": [
+        { "key": "A", "text": "测试选项1" },
+        { "key": "B", "text": "测试选项1" },
+        { "key": "C", "text": "测试选项1" }
+      ],
+      "score": 3,
+      "seq": 2,
+      "type": "single"
+    },
+    {
+      "content": "测试题目3",
+      "explanation": null,
+      "id": "import-1773415408698-2",
+      "options": [
+        { "key": "A", "text": "测试选项1" },
+        { "key": "B", "text": "测试选项1" },
+        { "key": "C", "text": "测试选项1" }
+      ],
+      "score": 3,
+      "seq": 3,
+      "type": "single"
+    },
+    {
+      "content": "测试题目4",
+      "explanation": null,
+      "id": "import-1773415408698-3",
+      "options": [
+        { "key": "A", "text": "测试选项1" },
+        { "key": "B", "text": "测试选项1" },
+        { "key": "C", "text": "测试选项1" }
+      ],
+      "score": 3,
+      "seq": 4,
+      "type": "single"
+    },
+    {
+      "content": "测试题目5",
+      "explanation": null,
+      "id": "import-1773415408698-4",
+      "options": [
+        { "key": "A", "text": "测试选项1" },
+        { "key": "B", "text": "测试选项1" },
+        { "key": "C", "text": "测试选项1" }
+      ],
+      "score": 3,
+      "seq": 5,
+      "type": "single"
+    }
+  ],
+  "sessionId": "4888fe98-c644-4de8-89c8-207a23c7420a",
+  "updatedAt": 1774018927483
+}

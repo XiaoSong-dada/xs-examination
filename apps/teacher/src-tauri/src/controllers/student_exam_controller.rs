@@ -1,8 +1,20 @@
-use tauri::State;
+use tauri::{Manager, State};
 
+use crate::core::setting::SETTINGS;
+use crate::schemas::device_schema;
+use crate::network::student_control_client;
 use crate::schemas::student_exam_schema;
+use crate::services::exam_service;
+use crate::services::device_service;
 use crate::services::student_exam_service;
 use crate::state::AppState;
+
+fn now_ms() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or_default()
+}
 
 #[tauri::command]
 pub async fn get_students_by_exam_id(
@@ -66,6 +78,362 @@ pub async fn assign_devices_to_student_exams(
 ) -> Result<Vec<student_exam_schema::StudentDeviceAssignDto>, String> {
     let pool = &state.db;
     student_exam_service::assign_devices_to_student_exams(pool, payload.exam_id, payload.assignments)
+        .await
+        .map_err(|err| err.to_string())
+}
+
+fn resolve_local_ipv4() -> Result<String, String> {
+    let socket = std::net::UdpSocket::bind("0.0.0.0:0")
+        .map_err(|err| format!("获取本机地址失败: {}", err))?;
+    socket
+        .connect("8.8.8.8:80")
+        .map_err(|err| format!("探测本机地址失败: {}", err))?;
+    let addr = socket
+        .local_addr()
+        .map_err(|err| format!("读取本机地址失败: {}", err))?;
+
+    match addr.ip() {
+        std::net::IpAddr::V4(ip) => Ok(ip.to_string()),
+        std::net::IpAddr::V6(_) => Err("当前环境未获取到 IPv4 地址".to_string()),
+    }
+}
+
+#[tauri::command]
+pub async fn connect_student_devices_by_exam_id(
+    state: State<'_, AppState>,
+    payload: student_exam_schema::ConnectStudentDevicesByExamInput,
+) -> Result<device_schema::PushTeacherEndpointsOutput, String> {
+    let pool = &state.db;
+    let exam_id = payload.exam_id;
+
+    let exam = exam_service::get_exam_by_id(pool, exam_id.clone())
+        .await
+        .map_err(|err| err.to_string())?;
+
+    let assignments = student_exam_service::list_student_device_assignments_by_exam_id(
+        pool,
+        exam_id,
+    )
+    .await
+    .map_err(|err| err.to_string())?;
+
+    let devices = device_service::list_devices(pool, None, None)
+        .await
+        .map_err(|err| err.to_string())?;
+
+    let mut ip_to_device_id = std::collections::HashMap::with_capacity(devices.len());
+    for device in devices {
+        ip_to_device_id.insert(device.ip, device.id);
+    }
+
+    let mut targets = Vec::new();
+    let mut seen_ip = std::collections::HashSet::new();
+    for item in assignments {
+        let Some(ip) = item.ip_addr.clone() else {
+            continue;
+        };
+
+        if ip.trim().is_empty() {
+            continue;
+        }
+
+        // 同一设备 IP 只下发一次，避免重复请求；student_id 以第一条分配记录为准。
+        if !seen_ip.insert(ip.clone()) {
+            continue;
+        }
+
+        let device_id = ip_to_device_id
+            .get(&ip)
+            .cloned()
+            .unwrap_or_else(|| item.student_id.clone());
+
+        targets.push((
+            device_id,
+            ip,
+            item.student_exam_id,
+            item.student_id,
+            item.student_no,
+            item.student_name,
+        ));
+    }
+
+    if targets.is_empty() {
+        return Ok(device_schema::PushTeacherEndpointsOutput {
+            request_id: uuid::Uuid::new_v4().to_string(),
+            total: 0,
+            success_count: 0,
+            results: Vec::new(),
+        });
+    }
+
+    let local_ip = resolve_local_ipv4()?;
+    let master_endpoint = format!("ws://{}:{}", local_ip, SETTINGS.ws_server_port);
+    let request_id = uuid::Uuid::new_v4().to_string();
+    let endpoints = vec![student_control_client::TeacherEndpointInput {
+        id: uuid::Uuid::new_v4().to_string(),
+        endpoint: master_endpoint,
+        name: Some("主教师端".to_string()),
+        remark: Some("分配页一键连接考生设备".to_string()),
+        is_master: true,
+    }];
+
+    let mut results = Vec::with_capacity(targets.len());
+    for (device_id, device_ip, student_exam_id, student_id, student_no, student_name) in targets {
+        let req = student_control_client::ApplyTeacherEndpointsRequest {
+            r#type: "APPLY_TEACHER_ENDPOINTS".to_string(),
+            request_id: format!("{}-{}", request_id, device_id),
+            timestamp: now_ms(),
+            payload: student_control_client::ApplyTeacherEndpointsPayload {
+                config_version: Some(1),
+                session_id: Some(student_exam_id),
+                exam_id: Some(exam.id.clone()),
+                exam_title: Some(exam.title.clone()),
+                student_id,
+                student_no: Some(student_no),
+                student_name: Some(student_name),
+                assigned_ip_addr: Some(device_ip.clone()),
+                assignment_status: Some("assigned".to_string()),
+                start_time: exam.start_time,
+                end_time: exam.end_time,
+                endpoints: endpoints.clone(),
+            },
+        };
+
+        match student_control_client::apply_teacher_endpoints(&device_ip, SETTINGS.std_controller_port, &req).await {
+            Ok(ack) => results.push(device_schema::PushTeacherEndpointsResultItem {
+                device_id,
+                device_ip,
+                success: ack.payload.success,
+                message: ack.payload.message,
+                connected_master: ack.payload.connected_master,
+            }),
+            Err(err) => results.push(device_schema::PushTeacherEndpointsResultItem {
+                device_id,
+                device_ip,
+                success: false,
+                message: err.to_string(),
+                connected_master: None,
+            }),
+        }
+    }
+
+    let success_count = results.iter().filter(|item| item.success).count();
+    Ok(device_schema::PushTeacherEndpointsOutput {
+        request_id,
+        total: results.len(),
+        success_count,
+        results,
+    })
+}
+
+#[tauri::command]
+pub async fn get_student_device_connection_status_by_exam_id(
+    state: State<'_, AppState>,
+    payload: student_exam_schema::GetStudentExamsInput,
+) -> Result<Vec<student_exam_schema::StudentDeviceConnectionStatusDto>, String> {
+    let pool = &state.db;
+    let connection_map = state
+        .snapshot_connections()
+        .into_iter()
+        .collect::<std::collections::HashMap<_, _>>();
+
+    student_exam_service::list_student_device_connection_status_by_exam_id(
+        pool,
+        payload.exam_id,
+        &connection_map,
+    )
+    .await
+    .map_err(|err| err.to_string())
+}
+
+/// 查询指定考试的成绩汇总。
+///
+/// # 参数
+/// * `state` - 全局应用状态，提供数据库连接。
+/// * `payload` - 查询参数，包含考试 ID。
+///
+/// # 返回值
+/// 返回已落库的成绩汇总列表；查询失败时返回错误字符串。
+#[tauri::command]
+pub async fn get_student_score_summary_by_exam_id(
+    state: State<'_, AppState>,
+    payload: student_exam_schema::GetStudentExamsInput,
+) -> Result<Vec<student_exam_schema::StudentScoreSummaryDto>, String> {
+    let pool = &state.db;
+    student_exam_service::list_student_score_summary_by_exam_id(pool, payload.exam_id)
+        .await
+        .map_err(|err| err.to_string())
+}
+
+/// 对指定考试执行成绩统计并覆盖写入数据库。
+///
+/// # 参数
+/// * `state` - 全局应用状态，提供数据库连接。
+/// * `payload` - 统计参数，包含考试 ID。
+///
+/// # 返回值
+/// 返回最新成绩汇总列表；若考试状态非 `finished` 或统计失败则返回错误字符串。
+#[tauri::command]
+pub async fn calculate_student_score_summary_by_exam_id(
+    state: State<'_, AppState>,
+    payload: student_exam_schema::CalculateExamScoresByExamInput,
+) -> Result<Vec<student_exam_schema::StudentScoreSummaryDto>, String> {
+    let pool = &state.db;
+    student_exam_service::recalculate_student_score_summary_by_exam_id(pool, payload.exam_id)
+        .await
+        .map_err(|err| err.to_string())
+}
+
+/// 将成绩报告文件写入本机目录并返回落盘路径。
+///
+/// # 参数
+/// * `app_handle` - Tauri 应用句柄，用于解析系统目录路径。
+/// * `payload` - 文件名与二进制内容。
+///
+/// # 返回值
+/// 返回保存后的绝对路径；写盘失败时返回错误字符串。
+#[tauri::command]
+pub async fn save_score_report_file(
+    app_handle: tauri::AppHandle,
+    payload: student_exam_schema::SaveScoreReportFileInput,
+) -> Result<student_exam_schema::SaveScoreReportFileOutput, String> {
+    if payload.bytes.len() < 4 {
+        return Err("导出文件内容为空，请先确认有成绩数据后再导出".to_string());
+    }
+
+    // xlsx 是 zip 容器，文件头应为 PK。
+    if payload.bytes[0] != 0x50 || payload.bytes[1] != 0x4B {
+        return Err("导出文件格式异常，请重试导出".to_string());
+    }
+
+    let base_dir = app_handle
+        .path()
+        .download_dir()
+        .or_else(|_| app_handle.path().document_dir())
+        .or_else(|_| app_handle.path().app_data_dir())
+        .map_err(|err| format!("解析导出目录失败: {}", err))?;
+
+    std::fs::create_dir_all(&base_dir).map_err(|err| format!("创建导出目录失败: {}", err))?;
+
+    let sanitized_name = payload
+        .file_name
+        .chars()
+        .map(|c| match c {
+            '\\' | '/' | ':' | '*' | '?' | '"' | '<' | '>' | '|' => '_',
+            _ => c,
+        })
+        .collect::<String>();
+
+    let file_name = if sanitized_name.to_lowercase().ends_with(".xlsx") {
+        sanitized_name
+    } else {
+        format!("{}.xlsx", sanitized_name)
+    };
+
+    let file_path = base_dir.join(file_name);
+    std::fs::write(&file_path, payload.bytes).map_err(|err| format!("写入导出文件失败: {}", err))?;
+
+    Ok(student_exam_schema::SaveScoreReportFileOutput {
+        path: file_path.to_string_lossy().to_string(),
+    })
+}
+
+/// 解析成绩报告导出的预期落盘路径。
+///
+/// # 参数
+/// * `app_handle` - Tauri 应用句柄，用于解析系统目录路径。
+/// * `payload` - 文件名。
+///
+/// # 返回值
+/// 返回系统下载目录下的完整文件路径；目录解析失败时返回错误字符串。
+#[tauri::command]
+pub async fn resolve_report_download_path(
+    app_handle: tauri::AppHandle,
+    payload: student_exam_schema::ResolveReportDownloadPathInput,
+) -> Result<student_exam_schema::ResolveReportDownloadPathOutput, String> {
+    let base_dir = app_handle
+        .path()
+        .download_dir()
+        .or_else(|_| app_handle.path().document_dir())
+        .or_else(|_| app_handle.path().app_data_dir())
+        .map_err(|err| format!("解析导出目录失败: {}", err))?;
+
+    let sanitized_name = payload
+        .file_name
+        .chars()
+        .map(|c| match c {
+            '\\' | '/' | ':' | '*' | '?' | '"' | '<' | '>' | '|' => '_',
+            _ => c,
+        })
+        .collect::<String>();
+
+    Ok(student_exam_schema::ResolveReportDownloadPathOutput {
+        path: base_dir.join(sanitized_name).to_string_lossy().to_string(),
+    })
+}
+
+#[tauri::command]
+pub async fn distribute_exam_papers_by_exam_id(
+    state: State<'_, AppState>,
+    payload: student_exam_schema::DistributeExamPapersByExamInput,
+) -> Result<student_exam_schema::DistributeExamPapersOutput, String> {
+    let pool = &state.db;
+    let exam_id = payload.exam_id;
+
+    let result = student_exam_service::distribute_exam_papers_by_exam_id(pool, exam_id.clone())
+        .await
+        .map_err(|err| err.to_string())?;
+
+    if result.total > 0 && result.success_count == result.total {
+        exam_service::update_exam_status(pool, exam_id, "published".to_string())
+            .await
+            .map_err(|err| err.to_string())?;
+    }
+
+    Ok(result)
+}
+
+#[tauri::command]
+pub async fn start_exam_by_exam_id(
+    app_handle: tauri::AppHandle,
+    state: State<'_, AppState>,
+    payload: student_exam_schema::StartExamByExamInput,
+) -> Result<student_exam_schema::StartExamOutput, String> {
+    let pool = &state.db;
+    let exam_id = payload.exam_id;
+
+    let result = student_exam_service::start_exam_by_exam_id(&app_handle, pool, exam_id.clone())
+        .await
+        .map_err(|err| err.to_string())?;
+
+    if result.sent_count > 0 {
+        exam_service::update_exam_status(pool, exam_id, "active".to_string())
+            .await
+            .map_err(|err| err.to_string())?;
+    }
+
+    Ok(result)
+}
+
+/// 结束指定考试并触发学生端最终同步。
+///
+/// # 参数
+/// * `app_handle` - Tauri 应用句柄。
+/// * `state` - 全局应用状态，提供数据库连接。
+/// * `payload` - 结束考试输入参数，包含考试 ID。
+///
+/// # 返回值
+/// 返回结束考试下发与最终同步 ACK 聚合结果；失败时返回错误字符串。
+#[tauri::command]
+pub async fn end_exam_by_exam_id(
+    app_handle: tauri::AppHandle,
+    state: State<'_, AppState>,
+    payload: student_exam_schema::EndExamByExamInput,
+) -> Result<student_exam_schema::EndExamOutput, String> {
+    let pool = &state.db;
+    let exam_id = payload.exam_id;
+
+    student_exam_service::end_exam_by_exam_id(&app_handle, pool, exam_id)
         .await
         .map_err(|err| err.to_string())
 }

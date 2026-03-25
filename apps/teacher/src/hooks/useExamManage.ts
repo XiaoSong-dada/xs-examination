@@ -2,15 +2,22 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { useAllExamList } from "@/hooks/useExam";
 import { getExamById, updateExam } from "@/services/examService";
-import type { StudentDeviceAssignItem } from "@/types/main";
+import {
+  distributeExamPapersByExamId,
+  endExamByExamId,
+  startExamByExamId,
+} from "@/services/studentService";
+import type {
+  DeviceConnectionStatus,
+  StudentDeviceConnectionStatusItem,
+} from "@/types/main";
 import { useDeviceAssign } from "./useDeviceAssign";
 
 export interface ExamManageTableItem {
   id: string;
   name: string;
   deviceIp: string;
-  linkStatus: string;
-  status: string;
+  deviceStatus: DeviceConnectionStatus;
 }
 
 const examStatusLabelMap: Record<string, string> = {
@@ -28,15 +35,16 @@ export function useExamManage() {
   const { exams, loading: examLoading, refresh: refreshExamList } = useAllExamList();
   const {
     getAssignStudentByExamId,
-    loading: studentLoading,
   } = useDeviceAssign();
 
   const [selectedExamId, setSelectedExamId] = useState<string>();
-  const [students, setStudents] = useState<StudentDeviceAssignItem[]>([]);
+  const [students, setStudents] = useState<StudentDeviceConnectionStatusItem[]>([]);
+  const [tableLoading, setTableLoading] = useState(false);
   const [currentExamStatus, setCurrentExamStatus] = useState<string>("draft");
   const [currentExamEndTime, setCurrentExamEndTime] = useState<number | undefined>();
   const [distributing, setDistributing] = useState(false);
   const [starting, setStarting] = useState(false);
+  const [ending, setEnding] = useState(false);
 
   useEffect(() => {
     if (!selectedExamId && exams.length > 0) {
@@ -64,15 +72,41 @@ export function useExamManage() {
     }
   }, []);
 
-  useEffect(() => {
-    const loadData = async () => {
-      const student = await getAssignStudentByExamId(selectedExamId ?? "");
-      setStudents(student ?? []);
-      await loadExamStatus(selectedExamId);
-    };
+  const loadStudents = useCallback(async (examId?: string) => {
+    if (!examId) {
+      setStudents([]);
+      return;
+    }
 
-    void loadData();
-  }, [getAssignStudentByExamId, loadExamStatus, selectedExamId]);
+    setTableLoading(true);
+    try {
+      const studentList = await getAssignStudentByExamId(examId);
+      setStudents(studentList ?? []);
+    } finally {
+      setTableLoading(false);
+    }
+  }, [getAssignStudentByExamId]);
+
+  useEffect(() => {
+    void Promise.all([
+      loadStudents(selectedExamId),
+      loadExamStatus(selectedExamId),
+    ]);
+  }, [loadExamStatus, loadStudents, selectedExamId]);
+
+  useEffect(() => {
+    if (!selectedExamId) {
+      return;
+    }
+
+    const timer = window.setInterval(() => {
+      void loadStudents(selectedExamId);
+    }, 5000);
+
+    return () => {
+      window.clearInterval(timer);
+    };
+  }, [loadStudents, selectedExamId]);
 
   const updateExamStatus = useCallback(
     async (status: string) => {
@@ -126,22 +160,52 @@ export function useExamManage() {
   }, [currentExamEndTime, currentExamStatus, selectedExamId, updateExamStatus]);
 
   const distributePapers = useCallback(async () => {
+    if (!selectedExamId) {
+      return null;
+    }
+
     setDistributing(true);
     try {
-      return await updateExamStatus("published");
+      const result = await distributeExamPapersByExamId(selectedExamId);
+      await refreshExamList();
+      await Promise.all([loadExamStatus(selectedExamId), loadStudents(selectedExamId)]);
+      return result;
     } finally {
       setDistributing(false);
     }
-  }, [updateExamStatus]);
+  }, [loadExamStatus, loadStudents, refreshExamList, selectedExamId]);
 
   const startExam = useCallback(async () => {
+    if (!selectedExamId) {
+      return null;
+    }
+
     setStarting(true);
     try {
-      return await updateExamStatus("active");
+      const result = await startExamByExamId(selectedExamId);
+      await refreshExamList();
+      await Promise.all([loadExamStatus(selectedExamId), loadStudents(selectedExamId)]);
+      return result;
     } finally {
       setStarting(false);
     }
-  }, [updateExamStatus]);
+  }, [loadExamStatus, loadStudents, refreshExamList, selectedExamId]);
+
+  const endExam = useCallback(async () => {
+    if (!selectedExamId) {
+      return null;
+    }
+
+    setEnding(true);
+    try {
+      const result = await endExamByExamId(selectedExamId);
+      await refreshExamList();
+      await Promise.all([loadExamStatus(selectedExamId), loadStudents(selectedExamId)]);
+      return result;
+    } finally {
+      setEnding(false);
+    }
+  }, [loadExamStatus, loadStudents, refreshExamList, selectedExamId]);
 
   const examOptions = useMemo(
     () => exams.map((exam) => ({ label: exam.title, value: exam.id })),
@@ -150,12 +214,11 @@ export function useExamManage() {
 
   const tableData = useMemo<ExamManageTableItem[]>(
     () =>
-      students.map((student: StudentDeviceAssignItem) => ({
+      students.map((student: StudentDeviceConnectionStatusItem) => ({
         id: student.student_id,
         name: student.student_name,
         deviceIp: student.ip_addr ?? "-",
-        linkStatus: student.ip_addr ? "已连接" : "未连接",
-        status: student.ip_addr ? "已分配" : "待考",
+        deviceStatus: student.connection_status,
       })),
     [students],
   );
@@ -168,10 +231,12 @@ export function useExamManage() {
     currentExamStatus,
     currentExamStatusLabel: examStatusLabelMap[currentExamStatus] ?? currentExamStatus,
     tableData,
-    tableLoading: studentLoading,
+    tableLoading,
     distributePapers,
     startExam,
+    endExam,
     distributing,
     starting,
+    ending,
   } as const;
 }

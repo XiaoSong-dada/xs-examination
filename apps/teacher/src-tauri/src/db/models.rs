@@ -52,10 +52,14 @@ pub struct Student {
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct AnswerSheet {
     pub id: String,
+    pub student_exam_id: Option<String>,
     pub student_id: String,
     pub exam_id: String,
     pub question_id: String,
     pub answer: Option<String>,
+    pub revision: Option<i64>,
+    pub answer_updated_at: Option<i64>,
+    pub received_at: Option<i64>,
     /// 0 = 错误，1 = 正确，NULL = 未评分（主观题）
     pub is_correct: Option<i64>,
     pub score: Option<i64>,
