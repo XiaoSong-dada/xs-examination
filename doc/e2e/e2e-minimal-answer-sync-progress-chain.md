@@ -36,7 +36,7 @@
 8. 教师端 `network/ws_server.rs` 收到 `ANSWER_SYNC` 后，调用 `persist_answer_sync`，把最新答案 upsert 到 `answer_sheets`，并返回 `ANSWER_SYNC_ACK`。
 9. 学生端收到 ACK 后才会回写本地同步状态：对成功题目标记 `synced`，对失败题目标记 `failed`，等待后续补发或重连自愈。
 10. 同一个教师端处理链里，`persist_answer_sync` 会基于 `answer_sheets` 重新计算该 `student_exam` 的 `answered_count / total_questions / progress_percent`，再 upsert 到 `student_exam_progress`。
-11. 教师端前端 `useMonitor.ts` 与 `useReport.ts` 继续通过 `get_student_device_connection_status_by_exam_id` 读取真实 `progress_percent`，分别渲染监考页和报告页。
+11. 教师端前端 `useMonitor.ts` 与 `useReport.ts` 继续通过 `get_student_device_connection_status_by_exam_id` 读取真实 `progress_percent`，分别渲染监考页和报告页；其中 Report 页还会额外通过 `get_student_score_summary_by_exam_id` 读取成绩总分。
 12. 若教师端后续触发“结束考试”，则答案同步链会切换到 final `ANSWER_SYNC` 与 `finished` 后拒收答案的口径，详见独立的结束考试 e2e 文档。
 
 到第 6 步为止，已经完成“学生端每题最新答案先落本地”的最短本地闭环。
@@ -212,7 +212,7 @@ Hook 在：
 它走的是统一状态查询链：
 
 1. [apps/teacher/src/hooks/useMonitor.ts](apps/teacher/src/hooks/useMonitor.ts) 通过 `getStudentDeviceConnectionStatusByExamId` 拉取监考表格数据
-2. [apps/teacher/src/hooks/useReport.ts](apps/teacher/src/hooks/useReport.ts) 通过同一个 service 拉取报告页表格数据
+2. [apps/teacher/src/hooks/useReport.ts](apps/teacher/src/hooks/useReport.ts) 通过同一个 service 拉取报告页的进度数据，并通过额外的成绩汇总命令读取 `score_summary`
 3. [apps/teacher/src/services/studentService.ts](apps/teacher/src/services/studentService.ts) 调用 `get_student_device_connection_status_by_exam_id`
 4. [apps/teacher/src-tauri/src/services/student_exam_service.rs](apps/teacher/src-tauri/src/services/student_exam_service.rs) 把连接状态与进度聚合结果合并成 `StudentDeviceConnectionStatusDto`
 5. 前端最终使用返回值里的 `progress_percent`
@@ -221,6 +221,7 @@ Hook 在：
 
 1. Monitor 页的 `answerProgress`
 2. Report 页的 `answerProgress`
+3. Report 页在统计成绩完成后的 `score`
 
 它们现在都不再是占位 0，而是教师端真实聚合结果。
 
@@ -259,7 +260,7 @@ Hook 在：
 
 ## 一句话总结
 
-教师端开始考试后，会经 `ExamManage/useExamManage/studentService -> start_exam_by_exam_id -> student_exam_service -> ws_server` 把 `EXAM_START` 下发给学生端；学生端 `ws_client` 收到后把本地 `exam_sessions` 标记为 `active`，随后答题页在每次选择答案时通过 `send_answer_sync` 先把最新答案落到本地 `local_answers` 与 `sync_outbox`，再通过 WebSocket 发送 `ANSWER_SYNC`；教师端 `ws_server` 收到后把最新答案 upsert 到 `answer_sheets`，返回分题结果的 `ANSWER_SYNC_ACK`，并把进度聚合 upsert 到 `student_exam_progress`，最终由 Monitor 与 Report 统一读取真实 `progress_percent` 展示。若连接在此过程中中断，则由重连链触发 full `ANSWER_SYNC` 与 `pending/failed` flush 完成后续自愈，详见 `e2e-minimal-answer-sync-ack-reconnect-chain.md`。
+教师端开始考试后，会经 `ExamManage/useExamManage/studentService -> start_exam_by_exam_id -> student_exam_service -> ws_server` 把 `EXAM_START` 下发给学生端；学生端 `ws_client` 收到后把本地 `exam_sessions` 标记为 `active`，随后答题页在每次选择答案时通过 `send_answer_sync` 先把最新答案落到本地 `local_answers` 与 `sync_outbox`，再通过 WebSocket 发送 `ANSWER_SYNC`；教师端 `ws_server` 收到后把最新答案 upsert 到 `answer_sheets`，返回分题结果的 `ANSWER_SYNC_ACK`，并把进度聚合 upsert 到 `student_exam_progress`，最终由 Monitor 与 Report 统一读取真实 `progress_percent` 展示；当考试结束后，Report 页还会基于同一批 `answer_sheets` 与 `questions` 进一步统计 `score_summary`，详见 `e2e-minimal-score-report-chain.md`。若连接在此过程中中断，则由重连链触发 full `ANSWER_SYNC` 与 `pending/failed` flush 完成后续自愈，详见 `e2e-minimal-answer-sync-ack-reconnect-chain.md`。
 
 ## 相关阅读
 
@@ -267,3 +268,4 @@ Hook 在：
 2. [教师端结束考试并触发学生端最终同步的最短 e2e 链路](./e2e-minimal-end-exam-final-sync-chain.md)
 3. [学生端启动恢复与断线重连的最短 e2e 链路](./e2e-minimal-student-startup-reconnect-chain.md)
 4. [教师端异常恢复后学生端全量答案同步与 ACK 收敛最短 e2e 链路](./e2e-minimal-answer-sync-ack-reconnect-chain.md)
+5. [教师端成绩报告统计与导出的最短 e2e 链路](./e2e-minimal-score-report-chain.md)

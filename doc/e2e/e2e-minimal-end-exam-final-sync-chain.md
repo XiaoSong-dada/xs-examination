@@ -96,7 +96,7 @@
 3. final `ANSWER_SYNC` 仍复用既有 `answer_sheets` 幂等落库与 `student_exam_progress` 聚合逻辑，不单独新增一套表。
 4. 学生端一旦本地状态变为 `ended`，后续 `send_answer_sync` 与 `flush_pending_answer_sync` 都会停止继续产生新的常规答案同步。
 5. 教师端对 `finished` 后的 `ANSWER_SYNC` 统一拒收，当前口径不区分“延迟重传”“重复 ACK 修正”或“补写最后一次 revision”。
-6. 这份链路文档只覆盖“结束考试”与“最终同步”的闭环，不覆盖倒计时自动结束、强制交卷、评分与报表统计。
+6. 这份链路文档只覆盖“结束考试”与“最终同步”的闭环，不覆盖倒计时自动结束、强制交卷、评分与报表统计；`finished` 之后进入 Report 页的“统计成绩 -> 导出成绩”闭环，详见独立的成绩报告 e2e 文档。
 
 ## 最小验收步骤
 
@@ -124,3 +124,4 @@
 2. [教师端异常恢复后学生端全量答案同步与 ACK 收敛最短 e2e 链路](./e2e-minimal-answer-sync-ack-reconnect-chain.md)
 3. [教师端发放试卷到学生端接收试卷的最短 e2e 链路](./e2e-minimal-exam-paper-distribution-chain.md)
 4. [项目依赖拓扑图](../project_dependency_topology.md)
+5. [教师端成绩报告统计与导出的最短 e2e 链路](./e2e-minimal-score-report-chain.md)

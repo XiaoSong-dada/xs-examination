@@ -179,9 +179,10 @@ graph TD
 - `pages/DeviceAssign` 的“连接考生设备”现在不再只是把教师端地址下发到学生端，还会经同一条控制链路把当前考试与考生的最小会话字段送到学生端，由学生端预写入 `exam_sessions`。
 - `pages/Monitor` 现在不再只按 `ip_addr` 推导在线状态，而是通过 `hooks/useMonitor.ts` 复用同一套状态查询链路，确保与分配页口径一致。
 - `pages/Monitor` 与 `pages/Report` 现在都不再使用硬编码 0 展示答题进度，而是分别通过 `hooks/useMonitor.ts`、`hooks/useReport.ts` 调用 `services/studentService.ts`，读取教师端 `get_student_device_connection_status_by_exam_id` 返回的真实 `progress_percent`。
+- `pages/Report` 当前还承载“统计成绩 -> 导出成绩”的新闭环：`hooks/useReport.ts` 会同时读取 `get_student_score_summary_by_exam_id`，在点击“统计成绩”时调用 `calculate_student_score_summary_by_exam_id` 重算并覆盖写入 `score_summary`，在点击“导出成绩”时通过前端 `XLSX.writeFile` 触发本地下载，并调用 `resolve_report_download_path` 给出预期下载位置。
 - `pages/ExamManage` 现在不仅负责考试状态展示，还通过 `hooks/useExamManage.ts` 调用 `services/studentService.ts` 触发“分发试卷”“开始考试”“结束考试”三条链路；其中“结束考试”链路会继续下沉到教师端 WebSocket 服务，向在线学生发送 final 同步请求与 `EXAM_END`，并在 final ACK 收敛后把教师端考试状态更新为 `finished`。
 - `pages/ExamManage` 的“设备状态”现已不再基于 `ip_addr` 做二态推断，而是复用 `get_student_device_connection_status_by_exam_id` 返回的四态结果，并按 5 秒轮询刷新，和 `DeviceAssign`、`Monitor` 保持一致口径。
-- 这意味着教师端前端里与“实时连接状态”最相关的页面已从单一的 `Monitor` 扩展为 `DeviceAssign + Monitor + ExamManage` 共用一套 `services -> teacher-rust` 调用路径；而“答题进度”这条链路也已收敛为 `Monitor + Report -> services/studentService.ts -> teacher-rust` 的统一查询口径。
+- 这意味着教师端前端里与“实时连接状态”最相关的页面已从单一的 `Monitor` 扩展为 `DeviceAssign + Monitor + ExamManage` 共用一套 `services -> teacher-rust` 调用路径；而“答题进度”这条链路也已收敛为 `Monitor + Report -> services/studentService.ts -> teacher-rust` 的统一查询口径，“成绩统计与导出”则形成了 `Report -> useReport -> studentService.ts -> teacher-rust` 的独立闭环。
 
 ### 4.4 扇入 / 扇出
 
@@ -196,6 +197,11 @@ graph TD
 | types | pages、hooks、services、utils | 基本无继续扇出 |
 | utils | pages、hooks、types | 基本无继续扇出 |
 | styles | entry | 0 |
+
+补充说明：
+
+- `hooks` 对 `services` 的扇出现在不只覆盖考试管理、分配与监考，还额外包含 Report 页的三类调用：进度查询、成绩统计、导出位置解析。
+- `services/studentService.ts` 对教师端 Rust 的扇出也随之扩大到五条报告相关命令：`get_student_device_connection_status_by_exam_id`、`get_student_score_summary_by_exam_id`、`calculate_student_score_summary_by_exam_id`、`resolve_report_download_path`，以及导出完成后配套的 `update_exam` 状态归档链路。
 
 ### 4.5 快速定位
 
@@ -212,6 +218,8 @@ graph TD
 - 若任务是“考试管理页分发试卷或开始考试”，优先看 `pages/ExamManage`、`hooks/useExamManage.ts`、`services/studentService.ts`。
 - 若任务是“考试管理页结束考试 / final 同步未收敛 / 结束后仍收答案”，优先看 `pages/ExamManage`、`hooks/useExamManage.ts`、`services/studentService.ts`、教师端 `controllers/student_exam_controller.rs`、`services/student_exam_service.rs`、`network/ws_server.rs`。
 - 若任务是“考试管理页设备状态不正确或与分配页监考页不一致”，优先看 `hooks/useExamManage.ts`、`hooks/useDeviceAssign.ts`、`services/studentService.ts`、`types/main.ts`。
+- 若任务是“成绩报告页为什么分值仍为 0 / 统计成绩不生效”，优先看 `pages/Report`、`hooks/useReport.ts`、`services/studentService.ts`、教师端 `controllers/student_exam_controller.rs`、`services/student_exam_service.rs`、`repos/student_exam_repo.rs`。
+- 若任务是“成绩报告导出到了哪里 / 为什么下载后文件异常”，优先看 `hooks/useReport.ts` 中的 `XLSX.writeFile` 与 `resolve_report_download_path`，再看教师端 `controllers/student_exam_controller.rs` 的下载目录解析逻辑。
 
 ### 4.6 说明
 
@@ -333,6 +341,12 @@ graph TD
 - `start_exam_by_exam_id`
 - `end_exam_by_exam_id`
 
+以及成绩报告页三条关键命令：
+
+- `get_student_score_summary_by_exam_id`
+- `calculate_student_score_summary_by_exam_id`
+- `resolve_report_download_path`
+
 这意味着当前教师端 Rust 的主要扇入集中在 `controllers/`，主要扇出集中在 `services/`、`network/`、`state/`。
 
 补充说明：
@@ -342,6 +356,12 @@ graph TD
 - `network/ws_server.rs` 现在不再只负责心跳在线态聚合，还会处理学生端 `ANSWER_SYNC` 消息，把最新答案 upsert 到 `answer_sheets`，并把监考 / 报告使用的进度聚合 upsert 到 `student_exam_progress`。
 - `network/ws_server.rs` 现在还会基于落库结果返回细粒度 `ANSWER_SYNC_ACK`，其中成功题目与失败题目会分别回传给学生端，用于本地同步状态收敛。
 - `network/ws_server.rs` 现在还承接“结束考试”链路的两个关键职责：向在线学生发送 final 同步请求与 `EXAM_END`，以及在 `exams.status = finished` 后直接拒收新的 `ANSWER_SYNC`。
+- `student_exam_controller.rs` 现在也直接承载成绩报告页的三条命令：读取 `score_summary`、重算并覆盖写入 `score_summary`、解析导出文件预期下载路径；对应业务下沉在 `student_exam_service.rs` 与 `student_exam_repo.rs`。
+
+补充说明：
+
+- `controllers` 对 `services` 的扇出已经从“学生、设备、考试管理”扩大到“成绩报告统计与导出定位”，其中 Report 相关命令全部收敛在 `student_exam_controller.rs`。
+- `services/student_exam_service.rs` 对 `repos/student_exam_repo.rs` 的扇出也新增了成绩查询与重算覆盖逻辑，因此 `student_exam_repo.rs` 现在既服务于进度聚合，也服务于 `score_summary` 的落库与读取。
 
 ### 5.6 快速定位
 
@@ -364,6 +384,8 @@ graph TD
 - 若任务是“结束考试后为什么仍能收到答案 / final ACK 为什么没收敛”，先看 `controllers/student_exam_controller.rs`、`services/student_exam_service.rs`、`network/ws_server.rs`，重点核对 online 目标筛选、`batch_id` 跟踪与 `finished` 门禁。
 - 若任务是“教师端为什么收到了心跳但没有收到答案进度”，先看 `network/ws_server.rs` 中 `ANSWER_SYNC` 处理分支，以及 `migrations/0004_add_answer_progress.sql` 的 `answer_sheets/student_exam_progress` 结构。
 - 若任务是“为什么 ACK 后仍有部分题目停留在 failed / sent”，先看教师端 `network/ws_server.rs::persist_answer_sync/send_answer_sync_ack` 的分题结果，以及学生端 `network/ws_client.rs`、`services/exam_runtime_service.rs` 的 `mark_answers_synced/mark_answers_failed/flush_pending_answer_sync`。
+- 若任务是“成绩报告统计后为什么没有写入总分 / 为什么只有进度没有成绩”，先看 `controllers/student_exam_controller.rs`、`services/student_exam_service.rs`、`repos/student_exam_repo.rs`，重点核对 `exams.status == finished` 门禁、`score_summary` 清空重写与 `questions.answer/score` 聚合逻辑。
+- 若任务是“前端提示导出成功但用户找不到文件”，先看 `controllers/student_exam_controller.rs::resolve_report_download_path` 与前端 `hooks/useReport.ts` 中 `XLSX.writeFile` 的实际触发时机。
 
 ---
 
@@ -637,6 +659,7 @@ graph TD
 | 心跳到了但 UI 未更新 | teacher-rust `controllers/student_exam_controller.rs` + `network/ws_server.rs`，重点检查 `student_id` 映射 |
 | 分发试卷 / 发卷 0/x / 连接被拒绝 10061 | teacher-frontend `pages/ExamManage` + `hooks/useExamManage.ts` + `services/studentService.ts` + teacher-rust `services/student_exam_service.rs` + `network/student_control_client.rs` |
 | 结束考试 / final 同步未完成 / 结束后仍收答案 | teacher-frontend `pages/ExamManage` + `hooks/useExamManage.ts` + `services/studentService.ts` + teacher-rust `controllers/student_exam_controller.rs` + `services/student_exam_service.rs` + `network/ws_server.rs` + student-rust `network/ws_client.rs` + `services/exam_runtime_service.rs` |
+| 成绩报告 / 统计成绩 / 导出成绩 | teacher-frontend `pages/Report` + `hooks/useReport.ts` + `services/studentService.ts` + teacher-rust `controllers/student_exam_controller.rs` + `services/student_exam_service.rs` + `repos/student_exam_repo.rs` |
 | 学生端未收到试卷 / 未显示已发卷 | student-rust `network/control_server.rs` + `services/exam_runtime_service.rs` + student-frontend `store/examStore.ts` + `App.tsx` |
 | 开考后答题同步 / 教师端进度不更新 | teacher-rust `network/ws_server.rs` + `services/student_exam_service.rs` + `repos/student_exam_repo.rs` + student-rust `commands.rs` + `network/ws_client.rs` |
 | 学生端重启后答案不恢复 / 页面进度丢失 | student-frontend `pages/Exam/index.tsx` + `services/examRuntimeService.ts` + student-rust `services/exam_runtime_service.rs` |
@@ -659,6 +682,7 @@ graph TD
 | 教师端开始考试后学生端按题同步答案并更新监考进度 | 适合排查 `EXAM_START`、按题 `ANSWER_SYNC`、细粒度 ACK、教师端进度聚合以及 Monitor / Report 的实时展示口径。 | `doc/e2e/e2e-minimal-answer-sync-progress-chain.md` |
 | 教师端异常恢复后学生端全量答案同步与 ACK 收敛 | 适合排查 full `ANSWER_SYNC`、`pending/failed` flush、ACK 收敛、部分成功 / 失败以及去重保护。 | `doc/e2e/e2e-minimal-answer-sync-ack-reconnect-chain.md` |
 | 教师端结束考试并触发学生端最终同步 | 适合排查 `FINAL_SYNC_REQUEST`、`EXAM_END`、学生端 `ended` 状态落库、教师端 final ACK 收敛，以及 `finished` 后拒收答案的门禁。 | `doc/e2e/e2e-minimal-end-exam-final-sync-chain.md` |
+| 教师端成绩报告统计与导出 | 适合排查 Report 页为何只显示进度不显示分值、为什么统计成绩未落库到 `score_summary`、为什么导出后状态未归档，以及导出位置提示来自哪里。 | `doc/e2e/e2e-minimal-score-report-chain.md` |
 
 若现有任务改变了这些链路的入口、出口、关键持久化落点、主查询来源或页面验证面，应同步更新对应 e2e 文档，并回写本图谱中的业务映射。
 
@@ -689,6 +713,8 @@ graph TD
 21. 2026-03-21 起，学生端设备 IP 已形成独立调用链：前端 `deviceStore/deviceService` 通过 Tauri `get_device_runtime_status` 调用学生端 `controllers/device_controller.rs -> services/device_service.rs -> network/device_network.rs` 获取本机 IP；`discovery_listener.rs` 也复用同一工具生成 ACK 中的设备 IP，并通过 `device_ip_updated` 事件回流前端 Header。
 22. 2026-03-23 起，`ANSWER_SYNC_ACK` 已支持细粒度结果：教师端 ACK 会返回 `questionIds/failedQuestionIds/successCount/failedCount`，学生端按题分别执行 `mark_answers_synced` 与 `mark_answers_failed`，不再仅按整批成功或整批失败处理。
 23. 同日，学生端重连链与答案同步链已完成真正收敛：`ws_connected` 后会按当前会话触发一轮带冷却保护的 full `ANSWER_SYNC`，若同一 endpoint 下切换了 `student_id`，则会先强制断开旧连接再按新身份重连，避免心跳身份与答题会话串台。
+24. 2026-03-25 起，教师端 Report 页已不再只是读取进度的展示页，而是新增了“统计成绩 -> 写入 `score_summary` -> 导出成绩 -> 归档考试”的完整链路；对应前端入口收敛在 `pages/Report/useReport/studentService.ts`，后端入口收敛在 `student_exam_controller/student_exam_service/student_exam_repo`。
+25. 同日，成绩报告导出恢复为前端 `XLSX.writeFile` 触发本地下载，而下载位置提示通过教师端 Rust `resolve_report_download_path` 返回系统下载目录下的预期文件路径；因此“能否触发下载”和“提示给出的路径在哪里”已经拆成两条不同职责的子链路。
 
 ---
 
