@@ -1,5 +1,6 @@
 import type {
   DistributeExamPapersResult,
+  EndExamResult,
   IStudentCreate,
   IStudentEditor,
   PushTeacherEndpointsResult,
@@ -84,6 +85,19 @@ export async function startExamByExamId(
   examId: string,
 ): Promise<StartExamResult> {
   return invoke<StartExamResult>("start_exam_by_exam_id", {
+    payload: { exam_id: examId },
+  });
+}
+
+/**
+ * 调用教师端 `end_exam_by_exam_id` 命令，触发在线学生最终同步并结束考试。
+ * @param examId 考试 ID。
+ * @returns 结束考试下发与 ACK 聚合结果。
+ */
+export async function endExamByExamId(
+  examId: string,
+): Promise<EndExamResult> {
+  return invoke<EndExamResult>("end_exam_by_exam_id", {
     payload: { exam_id: examId },
   });
 }

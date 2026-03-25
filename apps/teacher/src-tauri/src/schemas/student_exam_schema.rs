@@ -68,6 +68,11 @@ pub struct StartExamByExamInput {
     pub exam_id: String,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+pub struct EndExamByExamInput {
+    pub exam_id: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DistributeExamPapersResultItem {
     pub student_exam_id: String,
@@ -91,6 +96,16 @@ pub struct StartExamOutput {
     pub exam_id: String,
     pub total_targets: usize,
     pub sent_count: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EndExamOutput {
+    pub request_id: String,
+    pub exam_id: String,
+    pub total_targets: usize,
+    pub sent_count: usize,
+    pub acked_count: usize,
+    pub failed_count: usize,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]

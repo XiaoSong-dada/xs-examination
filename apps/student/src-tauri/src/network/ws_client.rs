@@ -8,8 +8,9 @@ use tokio::time::{sleep, Duration};
 use tokio_tungstenite::tungstenite::Message;
 
 use crate::network::protocol::{
-    AnswerItem, AnswerSyncAckPayload, ExamStartPayload, HeartbeatPayload, MessageType,
-    WsMessage, build_message, decode_value_message, encode_message,
+    AnswerItem, AnswerSyncAckPayload, ExamEndPayload, ExamStartPayload,
+    FinalSyncRequestPayload, HeartbeatPayload, MessageType, WsMessage, build_message,
+    decode_value_message, encode_message,
 };
 use crate::network::transport::ws_transport::{connect_ws, new_text_channel, run_text_writer_loop};
 use crate::schemas::teacher_endpoint_schema::WsConnectionEvent;
@@ -242,55 +243,14 @@ pub fn build_answer_sync_message(
 }
 
 async fn send_full_answer_sync_for_current_session(app_handle: &tauri::AppHandle) -> Result<()> {
-    let state = app_handle.state::<crate::state::AppState>();
-    let Some(sender) = state.ws_sender() else {
-        return Ok(());
-    };
-
-    let Some((session_id, exam_id, student_id, answers)) =
-        crate::services::exam_runtime_service::ExamRuntimeService::get_current_session_answer_sync_bundle(
-            app_handle,
-        )
-        .await?
-    else {
-        return Ok(());
-    };
-
-    if !state.should_send_full_sync(&session_id, now_ms(), 5_000) {
-        println!(
-            "[ws-client] skip duplicated full answer sync session_id={} within cooldown",
-            session_id
-        );
-        return Ok(());
-    }
-
-    if answers.is_empty() {
-        return Ok(());
-    }
-
-    let payload_answers: Vec<AnswerItem> = answers
-        .into_iter()
-        .map(|item| AnswerItem {
-            question_id: item.question_id,
-            answer: item.answer,
-            revision: Some(item.revision),
-            answer_updated_at: Some(item.updated_at),
-        })
-        .collect();
-
     let batch_id = uuid::Uuid::new_v4().to_string();
-    let message = build_answer_sync_message(
-        &exam_id,
-        &student_id,
-        Some(&session_id),
-        payload_answers,
+    let _ = crate::services::exam_runtime_service::ExamRuntimeService::send_current_session_answer_sync(
+        app_handle,
         "full",
         Some(&batch_id),
-    )?;
-
-    if sender.send(message).is_err() {
-        return Err(anyhow::anyhow!("全量答案同步发送失败：发送通道不可用"));
-    }
+        false,
+    )
+    .await?;
 
     Ok(())
 }
@@ -339,6 +299,61 @@ async fn handle_server_message(
                 println!(
                     "[ws-client] EXAM_START ignored: no matching local session (exam_id={}, student_id={})",
                     payload.exam_id, payload.student_id
+                );
+            }
+        }
+        MessageType::FinalSyncRequest => {
+            let payload: FinalSyncRequestPayload = serde_json::from_value(envelope.payload)?;
+            if payload.student_id != local_student_id {
+                return Ok(());
+            }
+
+            let sent = crate::services::exam_runtime_service::ExamRuntimeService::send_current_session_answer_sync(
+                &app_handle,
+                "final",
+                Some(&payload.batch_id),
+                true,
+            )
+            .await?;
+
+            println!(
+                "[ws-client] FINAL_SYNC_REQUEST handled exam_id={} student_id={} batch_id={} sent={}",
+                payload.exam_id,
+                payload.student_id,
+                payload.batch_id,
+                sent
+            );
+        }
+        MessageType::ExamEnd => {
+            let payload: ExamEndPayload = serde_json::from_value(envelope.payload)?;
+            if payload.student_id != local_student_id {
+                return Ok(());
+            }
+
+            let _ = crate::services::exam_runtime_service::ExamRuntimeService::send_current_session_answer_sync(
+                &app_handle,
+                "final",
+                Some(&payload.final_batch_id),
+                true,
+            )
+            .await?;
+
+            let updated = crate::services::exam_runtime_service::ExamRuntimeService::mark_exam_ended(
+                &app_handle,
+                &payload.exam_id,
+                &payload.student_id,
+                payload.end_time,
+            )
+            .await?;
+
+            if updated {
+                let _ = app_handle.emit(
+                    "exam_status_changed",
+                    json!({
+                        "examId": payload.exam_id,
+                        "studentId": payload.student_id,
+                        "status": "ended"
+                    }),
                 );
             }
         }

@@ -288,3 +288,26 @@ pub async fn start_exam_by_exam_id(
 
     Ok(result)
 }
+
+/// 结束指定考试并触发学生端最终同步。
+///
+/// # 参数
+/// * `app_handle` - Tauri 应用句柄。
+/// * `state` - 全局应用状态，提供数据库连接。
+/// * `payload` - 结束考试输入参数，包含考试 ID。
+///
+/// # 返回值
+/// 返回结束考试下发与最终同步 ACK 聚合结果；失败时返回错误字符串。
+#[tauri::command]
+pub async fn end_exam_by_exam_id(
+    app_handle: tauri::AppHandle,
+    state: State<'_, AppState>,
+    payload: student_exam_schema::EndExamByExamInput,
+) -> Result<student_exam_schema::EndExamOutput, String> {
+    let pool = &state.db;
+    let exam_id = payload.exam_id;
+
+    student_exam_service::end_exam_by_exam_id(&app_handle, pool, exam_id)
+        .await
+        .map_err(|err| err.to_string())
+}

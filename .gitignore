@@ -33,3 +33,5 @@ apps/student/.env
 # allow example templates
 !apps/teacher/.env.example
 !apps/student/.env.example
+
+target-check

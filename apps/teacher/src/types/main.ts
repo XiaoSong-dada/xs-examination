@@ -132,6 +132,15 @@ export interface StartExamResult {
   sent_count: number;
 }
 
+export interface EndExamResult {
+  request_id: string;
+  exam_id: string;
+  total_targets: number;
+  sent_count: number;
+  acked_count: number;
+  failed_count: number;
+}
+
 export interface UseStudentListResult {
   loading: boolean;
   inputKeyword: string;

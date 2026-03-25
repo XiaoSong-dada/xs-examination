@@ -9,8 +9,9 @@ use tokio_tungstenite::tungstenite::Message;
 
 use crate::core::setting::SETTINGS;
 use crate::network::protocol::{
-    AnswerSyncAckPayload, AnswerSyncPayload, ExamStartPayload, MessageType, WsMessage,
-    build_message, decode_value_message, encode_message,
+    AnswerSyncAckPayload, AnswerSyncPayload, ExamEndPayload, ExamStartPayload,
+    FinalSyncRequestPayload, MessageType, WsMessage, build_message, decode_value_message,
+    encode_message,
 };
 use crate::network::transport::ws_transport::{
     accept_ws, new_text_channel, run_text_writer_loop,
@@ -107,6 +108,26 @@ pub fn send_exam_start_to_student(
     Ok(state.send_ws_text_to_student(&envelope.payload.student_id, text))
 }
 
+pub fn send_final_sync_request_to_student(
+    app_handle: &tauri::AppHandle,
+    payload: FinalSyncRequestPayload,
+) -> Result<bool> {
+    let envelope = build_message(MessageType::FinalSyncRequest, payload.timestamp, payload);
+    let text = encode_message(&envelope)?;
+    let state = app_handle.state::<crate::state::AppState>();
+    Ok(state.send_ws_text_to_student(&envelope.payload.student_id, text))
+}
+
+pub fn send_exam_end_to_student(
+    app_handle: &tauri::AppHandle,
+    payload: ExamEndPayload,
+) -> Result<bool> {
+    let envelope = build_message(MessageType::ExamEnd, payload.timestamp, payload);
+    let text = encode_message(&envelope)?;
+    let state = app_handle.state::<crate::state::AppState>();
+    Ok(state.send_ws_text_to_student(&envelope.payload.student_id, text))
+}
+
 async fn handle_text_message(app_handle: &tauri::AppHandle, peer_id: &str, text: &str) -> Result<()> {
     let envelope: WsMessage<serde_json::Value> = decode_value_message(text)?;
     match envelope.r#type {
@@ -131,6 +152,16 @@ async fn handle_text_message(app_handle: &tauri::AppHandle, peer_id: &str, text:
             let success_count = persist_result.success_question_ids.len() as i64;
             let failed_count = persist_result.failed_question_ids.len() as i64;
             let success = failed_count == 0;
+
+            if success
+                && payload.sync_mode.as_deref() == Some("final")
+                && payload.batch_id.as_deref().map(|v| !v.trim().is_empty()).unwrap_or(false)
+            {
+                if let Some(batch_id) = payload.batch_id.as_deref() {
+                    state.mark_final_sync_received(batch_id);
+                }
+            }
+
             let message = if failed_count == 0 {
                 format!("答案已落库（{}/{}）", success_count, answer_count)
             } else {
@@ -184,6 +215,38 @@ async fn persist_answer_sync(
     received_at: i64,
 ) -> Result<PersistAnswerSyncResult> {
     let state = app_handle.state::<crate::state::AppState>();
+
+    let exam_alias = Alias::new("exam");
+    let exam_status_query = Query::select()
+        .expr_as(
+            Expr::col((exam_alias.clone(), Alias::new("status"))),
+            Alias::new("status"),
+        )
+        .from_as(Alias::new("exams"), exam_alias)
+        .and_where(Expr::cust(format!(
+            "id = '{}'",
+            sql_escape(&payload.exam_id)
+        )))
+        .limit(1)
+        .to_owned();
+
+    let exam_status: Option<String> = state
+        .db
+        .query_one(&exam_status_query)
+        .await?
+        .and_then(|row| row.try_get("", "status").ok());
+
+    if exam_status.as_deref() == Some("finished") {
+        return Ok(PersistAnswerSyncResult {
+            success_question_ids: Vec::new(),
+            failed_question_ids: payload
+                .answers
+                .iter()
+                .map(|item| item.question_id.clone())
+                .collect(),
+            first_error: Some("考试已结束，教师端拒收答案同步".to_string()),
+        });
+    }
 
     let se = Alias::new("se");
     let mut student_exam_id: Option<String> = None;

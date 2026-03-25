@@ -26,8 +26,10 @@ export function ExamManagePage() {
     tableLoading,
     distributePapers,
     startExam,
+    endExam,
     distributing,
     starting,
+    ending,
   } = useExamManage();
 
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -98,6 +100,28 @@ export function ExamManagePage() {
     message.success(`开始考试指令已发送（${result.sent_count}/${result.total_targets}）`);
   };
 
+  const handleEndExam = async () => {
+    const result = await endExam();
+    if (!result) {
+      message.error("未选择考试，无法结束考试");
+      return;
+    }
+
+    if (result.total_targets === 0) {
+      message.success("当前无在线考生，考试已结束");
+      return;
+    }
+
+    if (result.acked_count === result.total_targets) {
+      message.success(`考试结束成功（最终同步 ${result.acked_count}/${result.total_targets}）`);
+      return;
+    }
+
+    message.warning(
+      `考试结束未完全确认（发送 ${result.sent_count}/${result.total_targets}，确认 ${result.acked_count}/${result.total_targets}）`,
+    );
+  };
+
   return (
     <div className="space-y-4 h-full">
       <div
@@ -121,6 +145,9 @@ export function ExamManagePage() {
           </Button>
           <Button type="primary" ghost loading={starting} onClick={() => void handleStartExam()}>
             开始考试
+          </Button>
+          <Button danger loading={ending} onClick={() => void handleEndExam()}>
+            结束考试
           </Button>
           <div className="text-gray-600">当前考试状态：{currentExamStatusLabel}</div>
         </div>
