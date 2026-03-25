@@ -4,6 +4,7 @@ import { useAllExamList } from "@/hooks/useExam";
 import { getExamById, updateExam } from "@/services/examService";
 import {
   distributeExamPapersByExamId,
+  endExamByExamId,
   startExamByExamId,
 } from "@/services/studentService";
 import type {
@@ -43,6 +44,7 @@ export function useExamManage() {
   const [currentExamEndTime, setCurrentExamEndTime] = useState<number | undefined>();
   const [distributing, setDistributing] = useState(false);
   const [starting, setStarting] = useState(false);
+  const [ending, setEnding] = useState(false);
 
   useEffect(() => {
     if (!selectedExamId && exams.length > 0) {
@@ -189,6 +191,22 @@ export function useExamManage() {
     }
   }, [loadExamStatus, loadStudents, refreshExamList, selectedExamId]);
 
+  const endExam = useCallback(async () => {
+    if (!selectedExamId) {
+      return null;
+    }
+
+    setEnding(true);
+    try {
+      const result = await endExamByExamId(selectedExamId);
+      await refreshExamList();
+      await Promise.all([loadExamStatus(selectedExamId), loadStudents(selectedExamId)]);
+      return result;
+    } finally {
+      setEnding(false);
+    }
+  }, [loadExamStatus, loadStudents, refreshExamList, selectedExamId]);
+
   const examOptions = useMemo(
     () => exams.map((exam) => ({ label: exam.title, value: exam.id })),
     [exams],
@@ -216,7 +234,9 @@ export function useExamManage() {
     tableLoading,
     distributePapers,
     startExam,
+    endExam,
     distributing,
     starting,
+    ending,
   } as const;
 }

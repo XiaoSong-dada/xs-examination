@@ -60,6 +60,10 @@ pub async fn send_answer_sync(
 
     let session_id = session.id.clone();
 
+    if session.status == "ended" {
+        return Ok("考试已结束，当前答案不会再同步".to_string());
+    }
+
     let existing_answer = local_answers::Entity::find()
         .filter(local_answers::Column::SessionId.eq(session_id.clone()))
         .filter(local_answers::Column::QuestionId.eq(question_id.clone()))

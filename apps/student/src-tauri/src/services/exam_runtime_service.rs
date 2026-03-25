@@ -45,6 +45,23 @@ impl ExamRuntimeService {
 
         let mut flushed = 0usize;
         for row in rows {
+            let session_status = exam_sessions::Entity::find_by_id(row.session_id.clone())
+                .one(&state.db)
+                .await?
+                .map(|session| session.status)
+                .unwrap_or_else(|| "waiting".to_string());
+
+            if session_status == "ended" {
+                let next_retry_count = row.retry_count + 1;
+                let mut model: sync_outbox::ActiveModel = row.into();
+                model.status = Set("failed".to_string());
+                model.retry_count = Set(next_retry_count);
+                model.last_error = Set(Some("考试已结束，停止继续同步答案".to_string()));
+                model.updated_at = Set(now_ms());
+                model.update(&state.db).await?;
+                continue;
+            }
+
             let payload: PendingAnswerSyncPayload = match serde_json::from_slice(&row.payload) {
                 Ok(v) => v,
                 Err(err) => {
@@ -88,6 +105,71 @@ impl ExamRuntimeService {
         }
 
         Ok(flushed)
+    }
+
+    /// 发送当前会话答案同步消息，支持 full/incremental/final 三种同步模式。
+    ///
+    /// # 参数
+    /// * `app_handle` - Tauri 应用句柄。
+    /// * `sync_mode` - 同步模式，例如 `full`、`incremental`、`final`。
+    /// * `batch_id` - 同步批次标识；用于教师端聚合 ACK。
+    /// * `allow_empty` - 是否允许在无答案时仍发送空载荷同步消息。
+    ///
+    /// # 返回值
+    /// 返回 `Ok(true)` 表示消息已成功入发送通道；`Ok(false)` 表示当前无可发送会话或未连接。
+    pub async fn send_current_session_answer_sync(
+        app_handle: &tauri::AppHandle,
+        sync_mode: &str,
+        batch_id: Option<&str>,
+        allow_empty: bool,
+    ) -> Result<bool> {
+        let state = app_handle.state::<crate::state::AppState>();
+        let Some(sender) = state.ws_sender() else {
+            return Ok(false);
+        };
+
+        let Some((session_id, exam_id, student_id, answers)) =
+            Self::get_current_session_answer_sync_bundle(app_handle).await?
+        else {
+            return Ok(false);
+        };
+
+        if !allow_empty && answers.is_empty() {
+            return Ok(false);
+        }
+
+        if sync_mode == "full" && !state.should_send_full_sync(&session_id, now_ms(), 5_000) {
+            println!(
+                "[ws-client] skip duplicated full answer sync session_id={} within cooldown",
+                session_id
+            );
+            return Ok(false);
+        }
+
+        let payload_answers: Vec<AnswerItem> = answers
+            .into_iter()
+            .map(|item| AnswerItem {
+                question_id: item.question_id,
+                answer: item.answer,
+                revision: Some(item.revision),
+                answer_updated_at: Some(item.updated_at),
+            })
+            .collect();
+
+        let message = crate::network::ws_client::build_answer_sync_message(
+            &exam_id,
+            &student_id,
+            Some(&session_id),
+            payload_answers,
+            sync_mode,
+            batch_id,
+        )?;
+
+        if sender.send(message).is_err() {
+            return Err(anyhow::anyhow!("答案同步发送失败：发送通道不可用"));
+        }
+
+        Ok(true)
     }
 
     pub async fn get_current_session_answer_sync_bundle(
@@ -540,6 +622,44 @@ impl ExamRuntimeService {
         model.status = Set("active".to_string());
         model.started_at = Set(Some(start_time));
         model.ends_at = Set(end_time);
+        model.updated_at = Set(now_ms());
+        model.update(&state.db).await?;
+
+        Ok(true)
+    }
+
+    /// 将指定考试会话标记为已结束。
+    ///
+    /// # 参数
+    /// * `app_handle` - Tauri 应用句柄。
+    /// * `exam_id` - 考试 ID。
+    /// * `student_id` - 学生 ID。
+    /// * `end_time` - 结束时间戳（毫秒）。
+    ///
+    /// # 返回值
+    /// 若命中本地会话并成功更新状态，返回 `Ok(true)`；否则返回 `Ok(false)`。
+    pub async fn mark_exam_ended(
+        app_handle: &tauri::AppHandle,
+        exam_id: &str,
+        student_id: &str,
+        end_time: i64,
+    ) -> Result<bool> {
+        let state = app_handle.state::<crate::state::AppState>();
+        let row = exam_sessions::Entity::find()
+            .filter(exam_sessions::Column::ExamId.eq(exam_id.to_string()))
+            .filter(exam_sessions::Column::StudentId.eq(student_id.to_string()))
+            .order_by_desc(exam_sessions::Column::UpdatedAt)
+            .one(&state.db)
+            .await?;
+
+        let Some(session) = row else {
+            return Ok(false);
+        };
+
+        let mut model: exam_sessions::ActiveModel = session.into();
+        model.status = Set("ended".to_string());
+        model.ends_at = Set(Some(end_time));
+        model.last_synced_at = Set(Some(now_ms()));
         model.updated_at = Set(now_ms());
         model.update(&state.db).await?;
 

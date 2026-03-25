@@ -2,10 +2,12 @@ use anyhow::Result;
 use sea_orm::DatabaseConnection;
 use serde_json::json;
 use std::collections::{HashMap, HashSet};
+use tauri::Manager;
+use tokio::time::{sleep, Duration};
 
 use crate::models::student::Model as StudentModel;
 use crate::core::setting::SETTINGS;
-use crate::network::protocol::ExamStartPayload;
+use crate::network::protocol::{ExamEndPayload, ExamStartPayload, FinalSyncRequestPayload};
 use crate::network::student_control_client;
 use crate::schemas::student_exam_schema;
 use crate::repos::student_exam_repo;
@@ -251,4 +253,154 @@ pub async fn start_exam_by_exam_id(
         total_targets,
         sent_count,
     })
+}
+
+/// 结束指定考试：向在线考生发送最终同步请求与结束考试指令，并等待最终同步 ACK 聚合。
+///
+/// # 参数
+/// * `app_handle` - Tauri 应用句柄，用于访问运行时状态与 WebSocket 发送能力。
+/// * `db` - 数据库连接，用于读取考试与考生分配信息。
+/// * `exam_id` - 目标考试 ID。
+///
+/// # 返回值
+/// 返回结束考试发送与聚合结果；当且仅当在线目标全部完成 final ACK 才会在服务内部把考试状态更新为 `finished`。
+pub async fn end_exam_by_exam_id(
+    app_handle: &tauri::AppHandle,
+    db: &DatabaseConnection,
+    exam_id: String,
+) -> Result<student_exam_schema::EndExamOutput> {
+    let _ = exam_service::get_exam_by_id(db, exam_id.clone()).await?;
+    let assignments =
+        student_exam_repo::get_student_device_assignments_by_exam_id(db, &exam_id).await?;
+    let state = app_handle.state::<crate::state::AppState>();
+    let connection_map = state
+        .snapshot_connections()
+        .into_iter()
+        .collect::<HashMap<_, _>>();
+
+    let request_id = uuid::Uuid::new_v4().to_string();
+    let now = now_ms();
+    let mut total_targets = 0usize;
+    let mut sent_count = 0usize;
+    let mut expected_batch_ids: Vec<String> = Vec::new();
+
+    for item in assignments {
+        let Some(ip_addr) = item.ip_addr.as_deref() else {
+            continue;
+        };
+        if ip_addr.trim().is_empty() {
+            continue;
+        }
+
+        let (status, _) = derive_connection_status(
+            item.ip_addr.as_deref(),
+            connection_map.get(&item.student_id).copied(),
+            now,
+        );
+        if status != "正常" {
+            continue;
+        }
+
+        total_targets += 1;
+        let batch_id = format!("{}:{}", request_id, item.student_id);
+
+        let final_sync_delivered = crate::network::ws_server::send_final_sync_request_to_student(
+            app_handle,
+            FinalSyncRequestPayload {
+                exam_id: exam_id.clone(),
+                student_id: item.student_id.clone(),
+                session_id: item.student_exam_id.clone(),
+                batch_id: batch_id.clone(),
+                timestamp: now,
+            },
+        )?;
+
+        let end_delivered = crate::network::ws_server::send_exam_end_to_student(
+            app_handle,
+            ExamEndPayload {
+                exam_id: exam_id.clone(),
+                student_id: item.student_id.clone(),
+                end_time: now,
+                final_batch_id: batch_id.clone(),
+                timestamp: now,
+            },
+        )?;
+
+        if final_sync_delivered && end_delivered {
+            sent_count += 1;
+            expected_batch_ids.push(batch_id);
+        }
+    }
+
+    let mut acked_count = 0usize;
+    if !expected_batch_ids.is_empty() {
+        let started_at = now_ms();
+        let timeout_ms = 10_000;
+
+        loop {
+            acked_count = expected_batch_ids
+                .iter()
+                .filter(|batch_id| state.has_final_sync_received(batch_id))
+                .count();
+            if acked_count == expected_batch_ids.len() {
+                break;
+            }
+
+            if now_ms() - started_at >= timeout_ms {
+                break;
+            }
+
+            sleep(Duration::from_millis(200)).await;
+        }
+    }
+
+    if total_targets == 0 || (sent_count == total_targets && acked_count == total_targets) {
+        exam_service::update_exam_status(db, exam_id.clone(), "finished".to_string()).await?;
+    }
+
+    state.clear_final_sync_tracking(&expected_batch_ids);
+
+    Ok(student_exam_schema::EndExamOutput {
+        request_id,
+        exam_id,
+        total_targets,
+        sent_count,
+        acked_count,
+        failed_count: total_targets.saturating_sub(acked_count),
+    })
+}
+
+/// 查询指定考试的成绩汇总。
+///
+/// # 参数
+/// * `db` - 数据库连接。
+/// * `exam_id` - 考试 ID。
+///
+/// # 返回值
+/// 返回该考试当前已落库的成绩汇总；查询失败时返回错误。
+pub async fn list_student_score_summary_by_exam_id(
+    db: &DatabaseConnection,
+    exam_id: String,
+) -> Result<Vec<student_exam_schema::StudentScoreSummaryDto>> {
+    student_exam_repo::get_student_score_summary_by_exam_id(db, &exam_id).await
+}
+
+/// 对指定考试执行成绩重算并覆盖写入。
+///
+/// # 参数
+/// * `db` - 数据库连接。
+/// * `exam_id` - 考试 ID。
+///
+/// # 返回值
+/// 返回最新成绩汇总列表；当考试状态不是 `finished` 时返回业务错误。
+pub async fn recalculate_student_score_summary_by_exam_id(
+    db: &DatabaseConnection,
+    exam_id: String,
+) -> Result<Vec<student_exam_schema::StudentScoreSummaryDto>> {
+    let exam = exam_service::get_exam_by_id(db, exam_id.clone()).await?;
+    if exam.status != "finished" {
+        return Err(anyhow::anyhow!("仅已结束考试可统计成绩"));
+    }
+
+    student_exam_repo::recalculate_student_score_summary_by_exam_id(db, &exam_id).await
 }

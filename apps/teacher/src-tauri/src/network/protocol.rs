@@ -7,6 +7,7 @@ pub enum MessageType {
     ExamStart,
     ExamPause,
     ExamEnd,
+    FinalSyncRequest,
     ForceSubmit,
     Heartbeat,
     AnswerSync,
@@ -51,6 +52,32 @@ pub struct ExamStartPayload {
     pub start_time: i64,
     #[serde(rename = "endTime")]
     pub end_time: Option<i64>,
+    pub timestamp: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FinalSyncRequestPayload {
+    #[serde(rename = "examId")]
+    pub exam_id: String,
+    #[serde(rename = "studentId")]
+    pub student_id: String,
+    #[serde(rename = "sessionId")]
+    pub session_id: String,
+    #[serde(rename = "batchId")]
+    pub batch_id: String,
+    pub timestamp: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExamEndPayload {
+    #[serde(rename = "examId")]
+    pub exam_id: String,
+    #[serde(rename = "studentId")]
+    pub student_id: String,
+    #[serde(rename = "endTime")]
+    pub end_time: i64,
+    #[serde(rename = "finalBatchId")]
+    pub final_batch_id: String,
     pub timestamp: i64,
 }
 

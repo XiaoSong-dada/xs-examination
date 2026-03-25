@@ -68,6 +68,16 @@ pub struct StartExamByExamInput {
     pub exam_id: String,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+pub struct EndExamByExamInput {
+    pub exam_id: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct CalculateExamScoresByExamInput {
+    pub exam_id: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DistributeExamPapersResultItem {
     pub student_exam_id: String,
@@ -93,6 +103,16 @@ pub struct StartExamOutput {
     pub sent_count: usize,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EndExamOutput {
+    pub request_id: String,
+    pub exam_id: String,
+    pub total_targets: usize,
+    pub sent_count: usize,
+    pub acked_count: usize,
+    pub failed_count: usize,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct StudentDeviceConnectionStatusDto {
     pub student_exam_id: String,
@@ -107,4 +127,33 @@ pub struct StudentDeviceConnectionStatusDto {
     pub answered_count: i64,
     pub total_questions: i64,
     pub progress_percent: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+pub struct StudentScoreSummaryDto {
+    pub student_id: String,
+    pub total_score: i64,
+    pub is_passed: bool,
+    pub graded_at: i64,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct SaveScoreReportFileInput {
+    pub file_name: String,
+    pub bytes: Vec<u8>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SaveScoreReportFileOutput {
+    pub path: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct ResolveReportDownloadPathInput {
+    pub file_name: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ResolveReportDownloadPathOutput {
+    pub path: String,
 }

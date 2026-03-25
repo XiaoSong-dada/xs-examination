@@ -110,6 +110,13 @@ export interface StudentDeviceConnectionStatusItem {
   progress_percent: number;
 }
 
+export interface StudentScoreSummaryItem {
+  student_id: string;
+  total_score: number;
+  is_passed: boolean;
+  graded_at: number;
+}
+
 export interface DistributeExamPapersResultItem {
   student_exam_id: string;
   student_id: string;
@@ -130,6 +137,15 @@ export interface StartExamResult {
   exam_id: string;
   total_targets: number;
   sent_count: number;
+}
+
+export interface EndExamResult {
+  request_id: string;
+  exam_id: string;
+  total_targets: number;
+  sent_count: number;
+  acked_count: number;
+  failed_count: number;
 }
 
 export interface UseStudentListResult {
