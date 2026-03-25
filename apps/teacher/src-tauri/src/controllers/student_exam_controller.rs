@@ -246,6 +246,44 @@ pub async fn get_student_device_connection_status_by_exam_id(
     .map_err(|err| err.to_string())
 }
 
+/// 查询指定考试的成绩汇总。
+///
+/// # 参数
+/// * `state` - 全局应用状态，提供数据库连接。
+/// * `payload` - 查询参数，包含考试 ID。
+///
+/// # 返回值
+/// 返回已落库的成绩汇总列表；查询失败时返回错误字符串。
+#[tauri::command]
+pub async fn get_student_score_summary_by_exam_id(
+    state: State<'_, AppState>,
+    payload: student_exam_schema::GetStudentExamsInput,
+) -> Result<Vec<student_exam_schema::StudentScoreSummaryDto>, String> {
+    let pool = &state.db;
+    student_exam_service::list_student_score_summary_by_exam_id(pool, payload.exam_id)
+        .await
+        .map_err(|err| err.to_string())
+}
+
+/// 对指定考试执行成绩统计并覆盖写入数据库。
+///
+/// # 参数
+/// * `state` - 全局应用状态，提供数据库连接。
+/// * `payload` - 统计参数，包含考试 ID。
+///
+/// # 返回值
+/// 返回最新成绩汇总列表；若考试状态非 `finished` 或统计失败则返回错误字符串。
+#[tauri::command]
+pub async fn calculate_student_score_summary_by_exam_id(
+    state: State<'_, AppState>,
+    payload: student_exam_schema::CalculateExamScoresByExamInput,
+) -> Result<Vec<student_exam_schema::StudentScoreSummaryDto>, String> {
+    let pool = &state.db;
+    student_exam_service::recalculate_student_score_summary_by_exam_id(pool, payload.exam_id)
+        .await
+        .map_err(|err| err.to_string())
+}
+
 #[tauri::command]
 pub async fn distribute_exam_papers_by_exam_id(
     state: State<'_, AppState>,

@@ -73,6 +73,11 @@ pub struct EndExamByExamInput {
     pub exam_id: String,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+pub struct CalculateExamScoresByExamInput {
+    pub exam_id: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DistributeExamPapersResultItem {
     pub student_exam_id: String,
@@ -122,4 +127,12 @@ pub struct StudentDeviceConnectionStatusDto {
     pub answered_count: i64,
     pub total_questions: i64,
     pub progress_percent: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+pub struct StudentScoreSummaryDto {
+    pub student_id: String,
+    pub total_score: i64,
+    pub is_passed: bool,
+    pub graded_at: i64,
 }

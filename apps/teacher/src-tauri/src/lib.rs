@@ -62,6 +62,8 @@ pub fn run() {
             controllers::student_exam_controller::assign_devices_to_student_exams,
             controllers::student_exam_controller::connect_student_devices_by_exam_id,
             controllers::student_exam_controller::get_student_device_connection_status_by_exam_id,
+            controllers::student_exam_controller::get_student_score_summary_by_exam_id,
+            controllers::student_exam_controller::calculate_student_score_summary_by_exam_id,
             controllers::student_exam_controller::distribute_exam_papers_by_exam_id,
             controllers::student_exam_controller::start_exam_by_exam_id,
             controllers::student_exam_controller::end_exam_by_exam_id,

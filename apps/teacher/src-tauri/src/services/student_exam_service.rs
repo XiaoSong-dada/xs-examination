@@ -369,3 +369,38 @@ pub async fn end_exam_by_exam_id(
         failed_count: total_targets.saturating_sub(acked_count),
     })
 }
+
+/// 查询指定考试的成绩汇总。
+///
+/// # 参数
+/// * `db` - 数据库连接。
+/// * `exam_id` - 考试 ID。
+///
+/// # 返回值
+/// 返回该考试当前已落库的成绩汇总；查询失败时返回错误。
+pub async fn list_student_score_summary_by_exam_id(
+    db: &DatabaseConnection,
+    exam_id: String,
+) -> Result<Vec<student_exam_schema::StudentScoreSummaryDto>> {
+    student_exam_repo::get_student_score_summary_by_exam_id(db, &exam_id).await
+}
+
+/// 对指定考试执行成绩重算并覆盖写入。
+///
+/// # 参数
+/// * `db` - 数据库连接。
+/// * `exam_id` - 考试 ID。
+///
+/// # 返回值
+/// 返回最新成绩汇总列表；当考试状态不是 `finished` 时返回业务错误。
+pub async fn recalculate_student_score_summary_by_exam_id(
+    db: &DatabaseConnection,
+    exam_id: String,
+) -> Result<Vec<student_exam_schema::StudentScoreSummaryDto>> {
+    let exam = exam_service::get_exam_by_id(db, exam_id.clone()).await?;
+    if exam.status != "finished" {
+        return Err(anyhow::anyhow!("仅已结束考试可统计成绩"));
+    }
+
+    student_exam_repo::recalculate_student_score_summary_by_exam_id(db, &exam_id).await
+}

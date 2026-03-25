@@ -8,6 +8,7 @@ import type {
   StudentDeviceConnectionStatusItem,
   StudentDeviceAssignItem,
   StudentDeviceAssignPayloadItem,
+  StudentScoreSummaryItem,
   StudentListItem,
 } from "@/types/main";
 import { invoke } from "@tauri-apps/api/core";
@@ -71,6 +72,32 @@ export async function getStudentDeviceConnectionStatusByExamId(
       payload: { exam_id: examId },
     },
   );
+}
+
+/**
+ * 查询指定考试的成绩汇总结果。
+ * @param examId 考试 ID。
+ * @returns 返回已落库的学生总分列表。
+ */
+export async function getStudentScoreSummaryByExamId(
+  examId: string,
+): Promise<StudentScoreSummaryItem[]> {
+  return invoke<StudentScoreSummaryItem[]>("get_student_score_summary_by_exam_id", {
+    payload: { exam_id: examId },
+  });
+}
+
+/**
+ * 触发指定考试的成绩统计并覆盖写入数据库。
+ * @param examId 考试 ID。
+ * @returns 返回重算后的学生总分列表。
+ */
+export async function calculateStudentScoreSummaryByExamId(
+  examId: string,
+): Promise<StudentScoreSummaryItem[]> {
+  return invoke<StudentScoreSummaryItem[]>("calculate_student_score_summary_by_exam_id", {
+    payload: { exam_id: examId },
+  });
 }
 
 export async function distributeExamPapersByExamId(
