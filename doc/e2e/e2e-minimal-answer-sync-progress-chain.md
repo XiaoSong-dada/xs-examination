@@ -12,6 +12,7 @@
 2. 分发试卷
 3. 断网补发完整重试机制
 4. 历史答案轨迹回放
+5. 结束考试后的 final `ANSWER_SYNC` 与教师端拒收门禁
 
 只聚焦这次更新真正形成的最短闭环：
 
@@ -36,6 +37,7 @@
 9. 学生端收到 ACK 后才会回写本地同步状态：对成功题目标记 `synced`，对失败题目标记 `failed`，等待后续补发或重连自愈。
 10. 同一个教师端处理链里，`persist_answer_sync` 会基于 `answer_sheets` 重新计算该 `student_exam` 的 `answered_count / total_questions / progress_percent`，再 upsert 到 `student_exam_progress`。
 11. 教师端前端 `useMonitor.ts` 与 `useReport.ts` 继续通过 `get_student_device_connection_status_by_exam_id` 读取真实 `progress_percent`，分别渲染监考页和报告页。
+12. 若教师端后续触发“结束考试”，则答案同步链会切换到 final `ANSWER_SYNC` 与 `finished` 后拒收答案的口径，详见独立的结束考试 e2e 文档。
 
 到第 6 步为止，已经完成“学生端每题最新答案先落本地”的最短本地闭环。
 
@@ -251,6 +253,7 @@ Hook 在：
 3. 重连后一轮 full 同步与 `sync_outbox` 的完整自动补发重试循环
 4. 历史答案版本回放
 5. 自动交卷、强制交卷、暂停考试
+6. 结束考试触发的 final `ANSWER_SYNC`、学生端 `exam_sessions.status=ended` 与教师端 `finished` 后拒收答案
 
 这些要么属于前置链路，要么属于下一阶段增强。
 
@@ -261,5 +264,6 @@ Hook 在：
 ## 相关阅读
 
 1. [重连后学生答案全量同步与 ACK 收敛计划](../plans/2026_03_23_重连后学生答案全量同步与ACK收敛计划.md)
-2. [学生端启动恢复与断线重连的最短 e2e 链路](./e2e-minimal-student-startup-reconnect-chain.md)
-3. [教师端异常恢复后学生端全量答案同步与 ACK 收敛最短 e2e 链路](./e2e-minimal-answer-sync-ack-reconnect-chain.md)
+2. [教师端结束考试并触发学生端最终同步的最短 e2e 链路](./e2e-minimal-end-exam-final-sync-chain.md)
+3. [学生端启动恢复与断线重连的最短 e2e 链路](./e2e-minimal-student-startup-reconnect-chain.md)
+4. [教师端异常恢复后学生端全量答案同步与 ACK 收敛最短 e2e 链路](./e2e-minimal-answer-sync-ack-reconnect-chain.md)
