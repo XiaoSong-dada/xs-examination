@@ -1,4 +1,4 @@
-use tauri::State;
+use tauri::{Manager, State};
 
 use crate::core::setting::SETTINGS;
 use crate::schemas::device_schema;
@@ -282,6 +282,45 @@ pub async fn calculate_student_score_summary_by_exam_id(
     student_exam_service::recalculate_student_score_summary_by_exam_id(pool, payload.exam_id)
         .await
         .map_err(|err| err.to_string())
+}
+
+/// 将成绩报告文件写入本机目录并返回落盘路径。
+///
+/// # 参数
+/// * `app_handle` - Tauri 应用句柄，用于解析系统目录路径。
+/// * `payload` - 文件名与二进制内容。
+///
+/// # 返回值
+/// 返回保存后的绝对路径；写盘失败时返回错误字符串。
+#[tauri::command]
+pub async fn save_score_report_file(
+    app_handle: tauri::AppHandle,
+    payload: student_exam_schema::SaveScoreReportFileInput,
+) -> Result<student_exam_schema::SaveScoreReportFileOutput, String> {
+    let base_dir = app_handle
+        .path()
+        .download_dir()
+        .or_else(|_| app_handle.path().document_dir())
+        .or_else(|_| app_handle.path().app_data_dir())
+        .map_err(|err| format!("解析导出目录失败: {}", err))?;
+
+    std::fs::create_dir_all(&base_dir).map_err(|err| format!("创建导出目录失败: {}", err))?;
+
+    let sanitized_name = payload
+        .file_name
+        .chars()
+        .map(|c| match c {
+            '\\' | '/' | ':' | '*' | '?' | '"' | '<' | '>' | '|' => '_',
+            _ => c,
+        })
+        .collect::<String>();
+
+    let file_path = base_dir.join(sanitized_name);
+    std::fs::write(&file_path, payload.bytes).map_err(|err| format!("写入导出文件失败: {}", err))?;
+
+    Ok(student_exam_schema::SaveScoreReportFileOutput {
+        path: file_path.to_string_lossy().to_string(),
+    })
 }
 
 #[tauri::command]

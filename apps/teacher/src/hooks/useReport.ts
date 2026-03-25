@@ -7,6 +7,7 @@ import {
   calculateStudentScoreSummaryByExamId,
   getStudentDeviceConnectionStatusByExamId,
   getStudentScoreSummaryByExamId,
+  saveScoreReportFile,
 } from "@/services/studentService";
 import type { StudentDeviceConnectionStatusItem, StudentScoreSummaryItem } from "@/types/main";
 
@@ -116,9 +117,13 @@ export function useReport() {
     }
   }, [refresh, selectedExamId]);
 
+  /**
+   * 导出成绩报告到本机并返回保存路径。
+   * @returns 成功时返回文件绝对路径；失败时返回 `undefined`。
+   */
   const exportReport = useCallback(async () => {
     if (!selectedExamId || scoreSummaryCount <= 0) {
-      return false;
+      return undefined;
     }
 
     setExporting(true);
@@ -135,7 +140,11 @@ export function useReport() {
       XLSX.utils.book_append_sheet(workbook, worksheet, "成绩报告");
 
       const fileName = `${selectedExamTitle}-成绩报告.xlsx`;
-      XLSX.writeFile(workbook, fileName);
+      const workbookBytes = XLSX.write(workbook, {
+        bookType: "xlsx",
+        type: "array",
+      }) as ArrayBuffer;
+      const saveResult = await saveScoreReportFile(fileName, Array.from(new Uint8Array(workbookBytes)));
 
       if (selectedExamId) {
         const detail = await getExamById(selectedExamId);
@@ -154,10 +163,10 @@ export function useReport() {
         }
       }
 
-      return true;
+      return saveResult.path;
     } catch (error) {
       console.error("[useReport] 导出成绩失败", error);
-      return false;
+      return undefined;
     } finally {
       setExporting(false);
     }

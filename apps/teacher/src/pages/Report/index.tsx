@@ -61,9 +61,9 @@ export function ReportPage() {
       return;
     }
 
-    const ok = await exportReport();
-    if (ok) {
-      message.success("成绩报告导出成功");
+    const savedPath = await exportReport();
+    if (savedPath) {
+      message.success(`成绩报告导出成功，保存位置：${savedPath}`);
     } else {
       message.error("成绩报告导出失败");
     }

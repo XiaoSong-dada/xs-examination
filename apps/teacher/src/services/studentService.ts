@@ -100,6 +100,24 @@ export async function calculateStudentScoreSummaryByExamId(
   });
 }
 
+/**
+ * 将成绩报告二进制写入本机文件并返回保存路径。
+ * @param fileName 导出文件名。
+ * @param bytes xlsx 二进制字节数组。
+ * @returns 返回后端实际写入的绝对路径。
+ */
+export async function saveScoreReportFile(
+  fileName: string,
+  bytes: number[],
+): Promise<{ path: string }> {
+  return invoke<{ path: string }>("save_score_report_file", {
+    payload: {
+      file_name: fileName,
+      bytes,
+    },
+  });
+}
+
 export async function distributeExamPapersByExamId(
   examId: string,
 ): Promise<DistributeExamPapersResult> {

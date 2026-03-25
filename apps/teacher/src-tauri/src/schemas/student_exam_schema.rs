@@ -136,3 +136,14 @@ pub struct StudentScoreSummaryDto {
     pub is_passed: bool,
     pub graded_at: i64,
 }
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct SaveScoreReportFileInput {
+    pub file_name: String,
+    pub bytes: Vec<u8>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SaveScoreReportFileOutput {
+    pub path: String,
+}
