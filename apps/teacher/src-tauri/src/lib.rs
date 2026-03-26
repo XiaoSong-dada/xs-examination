@@ -4,7 +4,6 @@ pub mod core;
 pub mod services;
 pub mod repos;
 pub mod models;
-pub mod config;
 pub mod crypto;
 pub mod db;
 pub mod network;

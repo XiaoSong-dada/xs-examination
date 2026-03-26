@@ -7,7 +7,7 @@ use sea_orm::{
 use sqlx::{sqlite::SqliteConnectOptions, Row, SqlitePool};
 use tauri::{AppHandle, Manager};
 
-use crate::config::AppConfig;
+use crate::core::setting::DbConfig;
 
 pub mod models;
 
@@ -22,7 +22,7 @@ pub mod models;
 /// # 返回值
 /// 返回已连接的 `DatabaseConnection`；路径解析失败或连接失败时返回 `Err`。
 pub async fn init(app_handle: &AppHandle) -> Result<DatabaseConnection> {
-    let config = AppConfig::load()?;
+    let config = DbConfig::load()?;
 
     let app_data_dir = app_handle.path().app_data_dir()?;
     fs::create_dir_all(&app_data_dir)?;
