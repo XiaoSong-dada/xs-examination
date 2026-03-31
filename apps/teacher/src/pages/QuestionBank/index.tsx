@@ -121,7 +121,14 @@ export function QuestionBankPage() {
     }
 
     if (questionModal.formData) {
-      form.setFieldsValue(questionModal.formData);
+      form.setFieldsValue({
+        ...questionModal.formData,
+        content_image_paths: questionModal.formData.content_image_paths ?? [],
+        options: (questionModal.formData.options ?? []).map((item) => ({
+          ...item,
+          image_paths: item.image_paths ?? [],
+        })),
+      });
       return;
     }
 
@@ -407,6 +414,7 @@ export function QuestionBankPage() {
                     onClick={() =>
                       add({ key: `${fields.length + 1}`, text: "", option_type: "text", image_paths: [] })
                     }
+                    type="primary"
                   >
                     添加选项
                   </Button>
@@ -419,6 +427,7 @@ export function QuestionBankPage() {
                     option_type: "text",
                     image_paths: [],
                   }) as QuestionBankOption;
+                  const optionImagePaths = option.image_paths ?? [];
 
                   return (
                     <div key={field.key} className="rounded-lg border border-slate-200 p-4 space-y-3">
@@ -457,10 +466,10 @@ export function QuestionBankPage() {
                           </Button>
                         </Space>
                         <div className="flex flex-wrap gap-2">
-                          {option.image_paths.length === 0 ? (
+                          {optionImagePaths.length === 0 ? (
                             <span className="text-sm text-slate-400">未选择附件图片</span>
                           ) : (
-                            option.image_paths.map((path) => (
+                            optionImagePaths.map((path) => (
                               <Tag
                                 key={`${field.key}-${path}`}
                                 closable
