@@ -60,6 +60,59 @@ export interface Question {
 
 export type QuestionListItem = Question;
 
+export type QuestionBankOptionType = "text" | "text_with_image";
+
+export interface QuestionBankOption {
+  key: string;
+  text: string;
+  option_type: QuestionBankOptionType;
+  image_paths: string[];
+}
+
+export interface QuestionBankItem {
+  id: string;
+  type: string;
+  content: string;
+  content_image_paths: string[];
+  options: QuestionBankOption[];
+  answer: string;
+  score: number;
+  explanation?: string;
+  created_at: number;
+  updated_at: number;
+}
+
+export interface IQuestionBankCreate {
+  type: string;
+  content: string;
+  content_image_paths: string[];
+  options: QuestionBankOption[];
+  answer: string;
+  score: number;
+  explanation?: string;
+  created_at?: number;
+  updated_at?: number;
+}
+
+export interface IQuestionBankEditor extends IQuestionBankCreate {
+  id: string;
+}
+
+export interface UseQuestionBankListResult {
+  loading: boolean;
+  inputKeyword: string;
+  appliedKeyword: string;
+  setInputKeyword: (value: string) => void;
+  typeFilter?: string;
+  appliedTypeFilter?: string;
+  setTypeFilter: (value?: string) => void;
+  search: () => void;
+  reset: () => void;
+  total: number;
+  dataSource: QuestionBankItem[];
+  refresh: () => Promise<void>;
+}
+
 export interface IStudentCreate {
   student_no: string;
   name: string;
