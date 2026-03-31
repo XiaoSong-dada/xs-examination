@@ -347,7 +347,7 @@ export function QuestionBankPage() {
         onOk={() => form.submit()}
         okText="确认"
         cancelText="取消"
-        destroyOnClose
+        destroyOnHidden
       >
         <Form<IQuestionBankEditor>
           form={form}
@@ -420,7 +420,9 @@ export function QuestionBankPage() {
                   </Button>
                 </div>
 
+                <div className="h-[300px] overflow-y-auto pr-1 space-y-4">
                 {fields.map((field, index) => {
+                  const { key: _fieldReactKey, ...fieldProps } = field;
                   const option = (watchedOptions[index] ?? {
                     key: "",
                     text: "",
@@ -433,18 +435,18 @@ export function QuestionBankPage() {
                     <div key={field.key} className="rounded-lg border border-slate-200 p-4 space-y-3">
                       <div className="grid grid-cols-[100px_1fr_180px_96px] gap-3 items-start">
                         <Form.Item
-                          {...field}
+                          {...fieldProps}
                           name={[field.name, "key"]}
                           label="选项键"
                           rules={[{ required: true, message: "请输入选项键" }]}
                         >
                           <Input placeholder="如 A" />
                         </Form.Item>
-                        <Form.Item {...field} name={[field.name, "text"]} label="选项文本">
+                        <Form.Item {...fieldProps} name={[field.name, "text"]} label="选项文本">
                           <Input placeholder="请输入选项文本" />
                         </Form.Item>
                         <Form.Item
-                          {...field}
+                          {...fieldProps}
                           name={[field.name, "option_type"]}
                           label="选项类型"
                           rules={[{ required: true, message: "请选择选项类型" }]}
@@ -484,6 +486,7 @@ export function QuestionBankPage() {
                     </div>
                   );
                 })}
+                </div>
               </div>
             )}
           </Form.List>
