@@ -8,6 +8,10 @@ pub enum MessageType {
     ExamPause,
     ExamEnd,
     FinalSyncRequest,
+    PaperAssetManifest,
+    PaperAssetChunk,
+    PaperAssetAck,
+    PaperAssetSyncDone,
     ForceSubmit,
     Heartbeat,
     AnswerSync,
@@ -131,4 +135,104 @@ pub struct AnswerSyncAckPayload {
     pub success_count: i64,
     #[serde(rename = "failedCount", default)]
     pub failed_count: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PaperAssetDescriptor {
+    #[serde(rename = "assetId")]
+    pub asset_id: String,
+    #[serde(rename = "fileName")]
+    pub file_name: String,
+    #[serde(rename = "mimeType")]
+    pub mime_type: String,
+    pub sha256: String,
+    #[serde(rename = "byteSize")]
+    pub byte_size: u64,
+    #[serde(rename = "localPath", default)]
+    pub local_path: Option<String>,
+    #[serde(rename = "relativePath", default)]
+    pub relative_path: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PaperAssetManifestPayload {
+    #[serde(rename = "examId")]
+    pub exam_id: String,
+    #[serde(rename = "studentId")]
+    pub student_id: String,
+    #[serde(rename = "sessionId", default)]
+    pub session_id: Option<String>,
+    #[serde(rename = "batchId")]
+    pub batch_id: String,
+    pub assets: Vec<PaperAssetDescriptor>,
+    #[serde(rename = "totalAssets")]
+    pub total_assets: usize,
+    #[serde(rename = "totalBytes")]
+    pub total_bytes: u64,
+    pub timestamp: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PaperAssetChunkPayload {
+    #[serde(rename = "examId")]
+    pub exam_id: String,
+    #[serde(rename = "studentId")]
+    pub student_id: String,
+    #[serde(rename = "sessionId", default)]
+    pub session_id: Option<String>,
+    #[serde(rename = "batchId")]
+    pub batch_id: String,
+    #[serde(rename = "assetId")]
+    pub asset_id: String,
+    #[serde(rename = "chunkIndex")]
+    pub chunk_index: u32,
+    #[serde(rename = "totalChunks")]
+    pub total_chunks: u32,
+    #[serde(rename = "contentBase64")]
+    pub content_base64: String,
+    #[serde(rename = "isLast")]
+    pub is_last: bool,
+    pub timestamp: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PaperAssetAckPayload {
+    #[serde(rename = "examId")]
+    pub exam_id: String,
+    #[serde(rename = "studentId")]
+    pub student_id: String,
+    #[serde(rename = "sessionId", default)]
+    pub session_id: Option<String>,
+    #[serde(rename = "batchId")]
+    pub batch_id: String,
+    #[serde(rename = "assetId")]
+    pub asset_id: String,
+    pub success: bool,
+    pub message: String,
+    #[serde(rename = "receivedChunks", default)]
+    pub received_chunks: Option<u32>,
+    #[serde(rename = "totalChunks", default)]
+    pub total_chunks: Option<u32>,
+    pub timestamp: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PaperAssetSyncDonePayload {
+    #[serde(rename = "examId")]
+    pub exam_id: String,
+    #[serde(rename = "studentId")]
+    pub student_id: String,
+    #[serde(rename = "sessionId", default)]
+    pub session_id: Option<String>,
+    #[serde(rename = "batchId")]
+    pub batch_id: String,
+    pub success: bool,
+    pub message: String,
+    #[serde(rename = "totalAssets")]
+    pub total_assets: usize,
+    #[serde(rename = "successAssets")]
+    pub success_assets: usize,
+    #[serde(rename = "failedAssetIds", default)]
+    pub failed_asset_ids: Vec<String>,
+    pub timestamp: i64,
 }
