@@ -12,72 +12,25 @@ import {
   Image,
 } from "antd";
 import type { ColumnsType } from "antd/es/table";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useRef } from "react";
 import { formatTimestamp } from "@/utils/dayjs";
-import { dedupePaths } from "@/utils/pathUtils";
 
 import {
-  useCreateQuestionBankItem,
   useDeleteQuestionBankItem,
   useQuestionBankList,
-  useQuestionBankModal,
-  useUpdateQuestionBankItem,
 } from "@/hooks/useQuestionBank";
-import { useFileHooks } from "@/hooks/useFileHooks";
-import { pickImageFilePaths } from "@/services/fileDialogService";
+import { useQuestionBankEditor } from "@/hooks/useQuestionBankEditor";
 import { useTableHeight } from "@/hooks/useTableHeight";
+import {
+  optionTypeOptions,
+  questionTypeOptions,
+  resolveQuestionBankErrorMessage,
+} from "@/services/questionBankEditorService";
 import type {
-  IQuestionBankCreate,
   IQuestionBankEditor,
   QuestionBankItem,
   QuestionBankOption,
 } from "@/types/main";
-
-const questionTypeOptions = [
-  { label: "单选题", value: "single" },
-  { label: "多选题", value: "multiple" },
-  { label: "判断题", value: "judge" },
-  { label: "填空题", value: "blank" },
-  { label: "论述题", value: "essay" },
-];
-
-const optionTypeOptions = [
-  { label: "纯文本", value: "text" },
-  { label: "文字 + 图片", value: "text_with_image" },
-];
-
-function resolveErrorMessage(error: unknown): string {
-  if (error instanceof Error) {
-    return error.message;
-  }
-  if (typeof error === "string") {
-    return error;
-  }
-  try {
-    return JSON.stringify(error);
-  } catch {
-    return "未知错误";
-  }
-}
-
-function normalizeQuestionBankPayload(
-  values: IQuestionBankEditor,
-): IQuestionBankEditor {
-  return {
-    ...values,
-    type: values.type.trim(),
-    content: values.content.trim(),
-    content_image_paths: dedupePaths(values.content_image_paths ?? []),
-    options: (values.options ?? []).map((item, index) => ({
-      key: item.key.trim() || `${index + 1}`,
-      text: item.text.trim(),
-      option_type: item.option_type,
-      image_paths: dedupePaths(item.image_paths ?? []),
-    })),
-    answer: values.answer.trim(),
-    explanation: values.explanation?.trim() || undefined,
-  };
-}
 
 /**
  * 教师端题目列表页面，提供独立题库的查询、新增、编辑与删除。
@@ -97,130 +50,26 @@ export function QuestionBankPage() {
     dataSource,
     refresh,
   } = useQuestionBankList();
-  const { createQuestionBankItem } = useCreateQuestionBankItem();
-  const { updateQuestionBankItem } = useUpdateQuestionBankItem();
   const { deleteQuestionBankItem } = useDeleteQuestionBankItem();
-  const { uploadQuestionBankImages, resolveImagePreviews } = useFileHooks();
-  const questionModal = useQuestionBankModal();
 
   const containerRef = useRef<HTMLDivElement | null>(null);
   const toolbarRef = useRef<HTMLDivElement | null>(null);
   const tableHeight = useTableHeight(containerRef, toolbarRef);
-
-  const [form] = Form.useForm<IQuestionBankEditor>();
-  const [contentPreviewMap, setContentPreviewMap] = useState<
-    Record<string, string>
-  >({});
-  const [optionPreviewMap, setOptionPreviewMap] = useState<
-    Record<string, string>
-  >({});
-  const [contentPreviewLoading, setContentPreviewLoading] = useState(false);
-  const [optionPreviewLoading, setOptionPreviewLoading] = useState(false);
-  const contentImagePaths =
-    Form.useWatch("content_image_paths", { form, preserve: true }) ?? [];
-  const watchedOptions =
-    Form.useWatch("options", { form, preserve: true }) ?? [];
-  const optionImagePaths = useMemo(
-    () =>
-      dedupePaths(
-        (watchedOptions as QuestionBankOption[]).flatMap(
-          (item) => item?.image_paths ?? [],
-        ),
-      ),
-    [watchedOptions],
-  );
-
-  useEffect(() => {
-    if (!questionModal.visible) {
-      return;
-    }
-
-    if (questionModal.formData) {
-      form.setFieldsValue({
-        ...questionModal.formData,
-        content_image_paths: questionModal.formData.content_image_paths ?? [],
-        options: (questionModal.formData.options ?? []).map((item) => ({
-          ...item,
-          image_paths: item.image_paths ?? [],
-        })),
-      });
-      return;
-    }
-
-    form.resetFields();
-  }, [form, questionModal.formData, questionModal.visible]);
-
-  useEffect(() => {
-    if (!questionModal.visible || contentImagePaths.length === 0) {
-      // 避免每次都设置新的空对象导致重渲染循环，只有在当前 state 不符合目标时才设置
-      setContentPreviewMap((prev) => (Object.keys(prev).length === 0 ? prev : {}));
-      setContentPreviewLoading((prev) => (prev === false ? prev : false));
-      return;
-    }
-
-    let cancelled = false;
-    setContentPreviewLoading(true);
-
-    void (async () => {
-      try {
-        const previews = await resolveImagePreviews(contentImagePaths);
-        if (!cancelled) {
-          setContentPreviewMap(previews);
-        }
-      } catch (error) {
-        if (!cancelled) {
-          setContentPreviewMap({});
-          message.warning(
-            `题干图片预览加载失败：${resolveErrorMessage(error)}`,
-          );
-        }
-      } finally {
-        if (!cancelled) {
-          setContentPreviewLoading(false);
-        }
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [contentImagePaths, questionModal.visible, resolveImagePreviews]);
-
-  useEffect(() => {
-    if (!questionModal.visible || optionImagePaths.length === 0) {
-      // 避免每次都设置新的空对象导致重渲染循环
-      setOptionPreviewMap((prev) => (Object.keys(prev).length === 0 ? prev : {}));
-      setOptionPreviewLoading((prev) => (prev === false ? prev : false));
-      return;
-    }
-
-    let cancelled = false;
-    setOptionPreviewLoading(true);
-
-    void (async () => {
-      try {
-        const previews = await resolveImagePreviews(optionImagePaths);
-        if (!cancelled) {
-          setOptionPreviewMap(previews);
-        }
-      } catch (error) {
-        if (!cancelled) {
-          setOptionPreviewMap({});
-          message.warning(
-            `选项图片预览加载失败：${resolveErrorMessage(error)}`,
-          );
-        }
-      } finally {
-        if (!cancelled) {
-          setOptionPreviewLoading(false);
-        }
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [optionImagePaths, questionModal.visible, resolveImagePreviews]);
+  const {
+    form,
+    questionModal,
+    contentImagePaths,
+    watchedOptions,
+    contentPreviewMap,
+    optionPreviewMap,
+    contentPreviewLoading,
+    optionPreviewLoading,
+    handlePickContentImages,
+    handlePickOptionImages,
+    removeContentImage,
+    removeOptionImage,
+    handleSubmit,
+  } = useQuestionBankEditor(refresh);
 
   const columns: ColumnsType<QuestionBankItem> = useMemo(
     () => [
@@ -299,7 +148,7 @@ export function QuestionBankPage() {
                       message.success("删除成功");
                       await refresh();
                     } catch (error) {
-                      message.error(resolveErrorMessage(error));
+                      message.error(resolveQuestionBankErrorMessage(error));
                     }
                   },
                 });
@@ -313,84 +162,6 @@ export function QuestionBankPage() {
     ],
     [deleteQuestionBankItem, questionModal, refresh],
   );
-
-  const handlePickContentImages = async () => {
-    const selected = await pickImageFilePaths(true);
-    if (selected.length === 0) {
-      return;
-    }
-
-    const uploaded = await uploadQuestionBankImages(selected, "content");
-    const paths = uploaded.map((item) => item.relative_path);
-    form.setFieldValue(
-      "content_image_paths",
-      dedupePaths([
-        ...(form.getFieldValue("content_image_paths") ?? []),
-        ...paths,
-      ]),
-    );
-  };
-
-  const handlePickOptionImages = async (index: number) => {
-    const selected = await pickImageFilePaths(true);
-    if (selected.length === 0) {
-      return;
-    }
-
-    const uploaded = await uploadQuestionBankImages(selected, "options");
-    const paths = uploaded.map((item) => item.relative_path);
-    const current = (form.getFieldValue(["options", index, "image_paths"]) ??
-      []) as string[];
-    form.setFieldValue(
-      ["options", index, "image_paths"],
-      dedupePaths([...current, ...paths]),
-    );
-  };
-
-  const removeContentImage = (path: string) => {
-    form.setFieldValue(
-      "content_image_paths",
-      contentImagePaths.filter((item: string) => item !== path),
-    );
-  };
-
-  const removeOptionImage = (index: number, path: string) => {
-    const current = (
-      (watchedOptions[index]?.image_paths ?? []) as string[]
-    ).filter((item) => item !== path);
-    form.setFieldValue(["options", index, "image_paths"], current);
-  };
-
-  const handleSubmit = async (values: IQuestionBankEditor) => {
-    const payload = normalizeQuestionBankPayload(values);
-
-    try {
-      if (payload.id) {
-        await updateQuestionBankItem(payload);
-        message.success("更新成功");
-      } else {
-        const createPayload: IQuestionBankCreate = {
-          type: payload.type,
-          content: payload.content,
-          content_image_paths: payload.content_image_paths,
-          options: payload.options,
-          answer: payload.answer,
-          score: payload.score,
-          explanation: payload.explanation,
-          created_at: payload.created_at,
-          updated_at: payload.updated_at,
-        };
-        await createQuestionBankItem(createPayload);
-        message.success("新增成功");
-      }
-
-      questionModal.close();
-      form.resetFields();
-      await refresh();
-    } catch (error) {
-      message.error(resolveErrorMessage(error));
-    }
-  };
 
   return (
     <div className="space-y-4 h-full">
@@ -627,68 +398,70 @@ export function QuestionBankPage() {
                           {...fieldProps}
                           name={[field.name, "image_paths"]}
                         >
-                          <Space>
-                            <Button
-                              onClick={() => void handlePickOptionImages(index)}
-                            >
-                              选择附件图片
-                            </Button>
-                            <Button
-                              onClick={() =>
-                                form.setFieldValue(
-                                  ["options", index, "image_paths"],
-                                  [],
-                                )
-                              }
-                            >
-                              清空图片
-                            </Button>
-                          </Space>
-                          <div className="flex flex-wrap gap-2">
-                            {optionImagePaths.length === 0 ? (
-                              <span className="text-sm text-slate-400">
-                                未选择附件图片
-                              </span>
-                            ) : (
-                              optionImagePaths.map((path) => (
-                                <div
-                                  key={`${field.key}-${path}`}
-                                  className="border border-slate-200 rounded p-2 space-y-2"
-                                >
-                                  <div className="relative">
-                                    {optionPreviewMap[path] ? (
-                                      <Image
-                                        src={optionPreviewMap[path]}
-                                        alt={path}
-                                        width={88}
-                                        height={88}
-                                        style={{ objectFit: "cover" }}
-                                      />
-                                    ) : (
-                                      <div className="w-[88px] h-[88px] border border-slate-200 rounded flex items-center justify-center text-xs text-slate-500">
-                                        {optionPreviewLoading ? (
-                                          <Spin size="small" />
-                                        ) : (
-                                          "预览不可用"
-                                        )}
-                                      </div>
-                                    )}
+                          <div className="space-y-2">
+                            <Space>
+                              <Button
+                                onClick={() =>
+                                  void handlePickOptionImages(index)
+                                }
+                              >
+                                选择附件图片
+                              </Button>
+                              <Button
+                                onClick={() =>
+                                  form.setFieldValue(
+                                    ["options", index, "image_paths"],
+                                    [],
+                                  )
+                                }
+                              >
+                                清空图片
+                              </Button>
+                            </Space>
+                            <div className="flex flex-wrap gap-2">
+                              {optionImagePaths.length === 0 ? (
+                                <span className="text-sm text-slate-400">
+                                  未选择附件图片
+                                </span>
+                              ) : (
+                                optionImagePaths.map((path) => (
+                                  <div
+                                    key={`${field.key}-${path}`}
+                                    className="border border-slate-200 rounded p-2 space-y-2"
+                                  >
+                                    <div className="relative">
+                                      {optionPreviewMap[path] ? (
+                                        <Image
+                                          src={optionPreviewMap[path]}
+                                          alt={path}
+                                          width={88}
+                                          height={88}
+                                          style={{ objectFit: "cover" }}
+                                        />
+                                      ) : (
+                                        <div className="w-[88px] h-[88px] border border-slate-200 rounded flex items-center justify-center text-xs text-slate-500">
+                                          {optionPreviewLoading
+                                            ? "加载中"
+                                            : "预览不可用"}
+                                        </div>
+                                      )}
 
-                                    <Button
-                                      size="small"
-                                      shape="circle"
-                                      danger
-                                      className="absolute -top-1 -right-1"
-                                      onClick={() =>
-                                        removeOptionImage(index, path)
-                                      }
-                                    >
-                                      ×
-                                    </Button>
+                                      <Button
+                                        size="small"
+                                        shape="circle"
+                                        danger
+                                        className="absolute -top-1 -right-1"
+                                        onClick={() =>
+                                          removeOptionImage(index, path)
+                                        }
+                                      >
+                                        ×
+                                      </Button>
+                                    </div>
                                   </div>
-                                </div>
-                              ))
-                            )}
+                                ))
+                              )}
+                            </div>
                           </div>
                         </Form.Item>
                       </div>
