@@ -640,30 +640,31 @@ export function QuestionBankPage() {
                                   key={`${field.key}-${path}`}
                                   className="border border-slate-200 rounded p-2 space-y-2"
                                 >
-                                  {optionPreviewMap[path] ? (
-                                    <Image
-                                      src={optionPreviewMap[path]}
-                                      alt={path}
-                                      width={88}
-                                      height={88}
-                                      style={{ objectFit: "cover" }}
-                                    
+                                  <div className="relative">
+                                    {optionPreviewMap[path] ? (
+                                      <Image
+                                        src={optionPreviewMap[path]}
+                                        alt={path}
+                                        width={88}
+                                        height={88}
+                                        style={{ objectFit: "cover" }}
+                                      />
+                                    ) : (
+                                      <div className="w-[88px] h-[88px] border border-slate-200 rounded flex items-center justify-center text-xs text-slate-500">
+                                        {optionPreviewLoading ? <Spin size="small" /> : "预览不可用"}
+                                      </div>
+                                    )}
+
+                                    <Button
+                                      size="small"
+                                      shape="circle"
+                                      danger
+                                      className="absolute -top-1 -right-1"
+                                      onClick={() => removeOptionImage(index, path)}
                                     >
-                                      <Button
-                                        size="small"
-                                        shape="circle"
-                                        danger
-                                        className="absolute -top-1 -right-1"
-                                        onClick={() => removeOptionImage(index, path)}
-                                      >
-                                        ×
-                                      </Button>
-                                    </Image>
-                                  ) : (
-                                    <div className="w-[88px] h-[88px] border border-slate-200 rounded flex items-center justify-center text-xs text-slate-500">
-                                      {optionPreviewLoading ? <Spin size="small" /> : "预览不可用"}
-                                    </div>
-                                  )}
+                                      ×
+                                    </Button>
+                                  </div>
                                 </div>
                               ))
                             )}
