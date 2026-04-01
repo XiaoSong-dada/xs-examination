@@ -1,3 +1,5 @@
+import { Image } from "antd";
+
 import type { ExamQuestionOption } from "@/types/exam";
 
 type AnswerListProps = {
@@ -6,6 +8,11 @@ type AnswerListProps = {
   onSelect: (index: number) => void;
 };
 
+/**
+ * 渲染可点击作答的选项列表，并支持选项图片预览交互。
+ * @param props 选项数组、当前选中项及点击回调。
+ * @returns 返回选项按钮列表。
+ */
 export default function AnswerList({
   options,
   selectedOption,
@@ -34,11 +41,13 @@ export default function AnswerList({
               {Array.isArray(option.imagePaths) && option.imagePaths.length > 0 ? (
                 <span className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                   {option.imagePaths.map((imagePath, imageIndex) => (
-                    <img
+                    <Image
                       key={`${option.key}-${imagePath}-${imageIndex}`}
                       src={imagePath}
                       alt={`选项${option.key}图片${imageIndex + 1}`}
-                      className="h-28 w-full rounded border border-slate-200 object-cover"
+                      width="100%"
+                      height={112}
+                      style={{ objectFit: "cover" }}
                     />
                   ))}
                 </span>
