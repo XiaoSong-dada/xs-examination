@@ -98,6 +98,12 @@ export interface IQuestionBankEditor extends IQuestionBankCreate {
   id: string;
 }
 
+export interface QuestionBankExportPackageResult {
+  path: string;
+  packed_image_count: number;
+  missing_image_count: number;
+}
+
 export interface UseQuestionBankListResult {
   loading: boolean;
   inputKeyword: string;

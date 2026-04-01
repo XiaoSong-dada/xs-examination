@@ -36,3 +36,9 @@ pub struct BulkImportQuestionsInput {
     pub exam_id: String,
     pub questions: Vec<QuestionImportItemInput>,
 }
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct ImportQuestionPackageInput {
+    pub exam_id: String,
+    pub package_path: String,
+}

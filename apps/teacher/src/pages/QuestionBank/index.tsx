@@ -12,7 +12,8 @@ import {
   Image,
 } from "antd";
 import type { ColumnsType } from "antd/es/table";
-import { useMemo, useRef } from "react";
+import { useMemo, useRef, useState } from "react";
+import * as XLSX from "xlsx";
 import { formatTimestamp } from "@/utils/dayjs";
 
 import {
@@ -20,11 +21,14 @@ import {
   useQuestionBankList,
 } from "@/hooks/useQuestionBank";
 import { useQuestionBankEditor } from "@/hooks/useQuestionBankEditor";
+import { exportQuestionBankPackage } from "@/services/questionService";
 import { useTableHeight } from "@/hooks/useTableHeight";
 import {
+  collectQuestionBankExportImagePaths,
   optionTypeOptions,
   questionTypeOptions,
   resolveQuestionBankErrorMessage,
+  toQuestionBankExportRows,
 } from "@/services/questionBankEditorService";
 import type {
   IQuestionBankEditor,
@@ -55,6 +59,8 @@ export function QuestionBankPage() {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const toolbarRef = useRef<HTMLDivElement | null>(null);
   const tableHeight = useTableHeight(containerRef, toolbarRef);
+  const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
+  const [exporting, setExporting] = useState(false);
   const {
     form,
     questionModal,
@@ -163,6 +169,63 @@ export function QuestionBankPage() {
     [deleteQuestionBankItem, questionModal, refresh],
   );
 
+  const selectedItems = useMemo(
+    () =>
+      dataSource.filter((item) =>
+        selectedRowKeys.includes(item.id),
+      ),
+    [dataSource, selectedRowKeys],
+  );
+
+  const handleExport = async () => {
+    if (selectedItems.length === 0) {
+      message.warning("请先勾选要导出的题目");
+      return;
+    }
+
+    setExporting(true);
+    try {
+      const workbook = XLSX.utils.book_new();
+      const rows = toQuestionBankExportRows(selectedItems);
+      const worksheet = XLSX.utils.json_to_sheet(rows);
+      XLSX.utils.book_append_sheet(workbook, worksheet, "question_bank");
+
+      const workbookBinary = XLSX.write(workbook, {
+        bookType: "xlsx",
+        type: "array",
+      }) as ArrayBuffer;
+
+      const xlsxBytes = Array.from(new Uint8Array(workbookBinary));
+      const imageRelativePaths = collectQuestionBankExportImagePaths(selectedItems);
+
+      const now = new Date();
+      const timestamp = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}${String(
+        now.getDate(),
+      ).padStart(2, "0")}-${String(now.getHours()).padStart(2, "0")}${String(
+        now.getMinutes(),
+      ).padStart(2, "0")}${String(now.getSeconds()).padStart(2, "0")}`;
+      const fileName = `question-bank-export-${timestamp}.zip`;
+
+      const result = await exportQuestionBankPackage({
+        file_name: fileName,
+        xlsx_bytes: xlsxBytes,
+        image_relative_paths: imageRelativePaths,
+      });
+
+      message.success(
+        `导出成功：${selectedItems.length} 题，打包图片 ${result.packed_image_count} 张${
+          result.missing_image_count > 0
+            ? `，缺失 ${result.missing_image_count} 张`
+            : ""
+        }\n保存路径：${result.path}`,
+      );
+    } catch (error) {
+      message.error(resolveQuestionBankErrorMessage(error));
+    } finally {
+      setExporting(false);
+    }
+  };
+
   return (
     <div className="space-y-4 h-full">
       <div
@@ -203,6 +266,13 @@ export function QuestionBankPage() {
               <Button type="primary" onClick={questionModal.openCreate}>
                 新增题目
               </Button>
+              <Button
+                onClick={() => void handleExport()}
+                disabled={selectedItems.length === 0}
+                loading={exporting}
+              >
+                导出题目
+              </Button>
               <Button onClick={() => void refresh()}>刷新</Button>
             </Space>
             <div className="text-sm text-slate-500">共 {total} 条题目</div>
@@ -214,6 +284,10 @@ export function QuestionBankPage() {
           loading={loading}
           dataSource={dataSource}
           columns={columns}
+          rowSelection={{
+            selectedRowKeys,
+            onChange: (keys) => setSelectedRowKeys(keys),
+          }}
           pagination={false}
           scroll={{ y: tableHeight }}
         />

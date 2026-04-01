@@ -3,6 +3,7 @@ import type {
   IQuestionBankCreate,
   IQuestionBankEditor,
   Question,
+  QuestionBankExportPackageResult,
   QuestionBankItem,
 } from "@/types/main";
 
@@ -17,6 +18,17 @@ interface BulkImportQuestionsPayload {
 
 interface GetQuestionBankItemByIdPayload {
   id: string;
+}
+
+interface ExportQuestionBankPackagePayload {
+  file_name: string;
+  xlsx_bytes: number[];
+  image_relative_paths: string[];
+}
+
+interface ImportQuestionPackagePayload {
+  exam_id: string;
+  package_path: string;
 }
 
 /**
@@ -90,4 +102,30 @@ export async function updateQuestionBankItem(
  */
 export async function deleteQuestionBankItem(id: string): Promise<void> {
   return invoke<void>("delete_question_bank_item", { payload: { id } });
+}
+
+/**
+ * 导出题库资源包（question_bank.xlsx + assets）。
+ *
+ * @param payload - 导出文件名、xlsx 字节与图片相对路径。
+ * @returns 返回导出后的 zip 保存结果。
+ */
+export async function exportQuestionBankPackage(
+  payload: ExportQuestionBankPackagePayload,
+): Promise<QuestionBankExportPackageResult> {
+  return invoke<QuestionBankExportPackageResult>("export_question_bank_package", {
+    payload,
+  });
+}
+
+/**
+ * 按考试导入题目资源包并覆盖题目列表。
+ *
+ * @param payload - 考试 ID 与资源包绝对路径。
+ * @returns 返回导入后的题目列表。
+ */
+export async function importQuestionPackageByExamId(
+  payload: ImportQuestionPackagePayload,
+): Promise<Question[]> {
+  return invoke<Question[]>("import_question_package_by_exam_id", { payload });
 }

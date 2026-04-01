@@ -68,3 +68,18 @@ pub struct UpdateQuestionBankItemInput {
 pub struct DeleteQuestionBankItemInput {
     pub id: String,
 }
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct ExportQuestionBankPackageInput {
+    pub file_name: String,
+    pub xlsx_bytes: Vec<u8>,
+    #[serde(default)]
+    pub image_relative_paths: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ExportQuestionBankPackageOutput {
+    pub path: String,
+    pub packed_image_count: usize,
+    pub missing_image_count: usize,
+}

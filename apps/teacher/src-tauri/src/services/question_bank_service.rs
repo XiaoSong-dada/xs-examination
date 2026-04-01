@@ -1,10 +1,19 @@
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, Context, Result};
 use chrono::Utc;
 use sea_orm::DatabaseConnection;
 use serde::{Deserialize, Serialize};
+use tauri::Manager;
 
 use crate::models::question_bank_item::Model as QuestionBankItemModel;
 use crate::repos::question_bank_repo;
+use crate::utils::asset_zip::{create_asset_zip, ZipAssetEntry};
+
+#[derive(Debug, Clone)]
+pub struct ExportQuestionBankPackageResult {
+    pub output_path: String,
+    pub packed_image_count: usize,
+    pub missing_image_count: usize,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct QuestionBankOptionValue {
@@ -183,6 +192,84 @@ pub async fn delete_question_bank_item(db: &DatabaseConnection, id: String) -> R
     question_bank_repo::delete_question_bank_item_by_id(db, &id).await
 }
 
+/// 将题库导出的 xlsx 与图片资源打包为 zip 文件并写入本机下载目录。
+///
+/// # 参数
+/// - `app_handle`: Tauri 应用句柄，用于解析应用数据目录与下载目录。
+/// - `file_name`: 导出文件名（会自动规范化为 `.zip` 后缀）。
+/// - `xlsx_bytes`: 前端生成的 xlsx 二进制字节。
+/// - `image_relative_paths`: 需要打包的图片相对路径列表。
+///
+/// # 返回值
+/// - 返回导出包路径和资源统计；写盘、打包或目录解析失败时返回错误。
+pub fn export_question_bank_package(
+    app_handle: &tauri::AppHandle,
+    file_name: String,
+    xlsx_bytes: Vec<u8>,
+    image_relative_paths: Vec<String>,
+) -> Result<ExportQuestionBankPackageResult> {
+    if xlsx_bytes.is_empty() {
+        return Err(anyhow!("导出失败：xlsx 内容为空"));
+    }
+
+    let app_data_dir = app_handle
+        .path()
+        .app_data_dir()
+        .context("解析应用数据目录失败")?;
+
+    let temp_dir = app_data_dir
+        .join("temp")
+        .join(format!("question-bank-export-{}", uuid::Uuid::new_v4().simple()));
+    std::fs::create_dir_all(&temp_dir).context("创建导出临时目录失败")?;
+
+    let xlsx_path = temp_dir.join("question_bank.xlsx");
+    std::fs::write(&xlsx_path, xlsx_bytes).context("写入导出 xlsx 失败")?;
+
+    let mut entries = vec![ZipAssetEntry {
+        source_path: xlsx_path,
+        archive_path: "question_bank.xlsx".to_string(),
+    }];
+
+    let mut packed_image_count = 0usize;
+    let mut missing_image_count = 0usize;
+    for relative_path in normalize_paths(image_relative_paths) {
+        let source_path = relative_path
+            .split('/')
+            .filter(|segment| !segment.trim().is_empty())
+            .fold(app_data_dir.clone(), |acc, segment| acc.join(segment));
+        if !source_path.exists() {
+            missing_image_count += 1;
+            continue;
+        }
+
+        let archive_path = to_package_asset_path(&relative_path)?;
+        entries.push(ZipAssetEntry {
+            source_path,
+            archive_path,
+        });
+        packed_image_count += 1;
+    }
+
+    let output_file_name = normalize_zip_file_name(file_name);
+    let output_dir = app_handle
+        .path()
+        .download_dir()
+        .or_else(|_| app_handle.path().document_dir())
+        .unwrap_or(app_data_dir.clone());
+    std::fs::create_dir_all(&output_dir).context("创建导出目录失败")?;
+    let output_path = output_dir.join(output_file_name);
+
+    create_asset_zip(&output_path, &entries).context("打包题库资源失败")?;
+
+    let _ = std::fs::remove_dir_all(&temp_dir);
+
+    Ok(ExportQuestionBankPackageResult {
+        output_path: output_path.to_string_lossy().to_string(),
+        packed_image_count,
+        missing_image_count,
+    })
+}
+
 fn materialize_question_bank_item(item: QuestionBankItemModel) -> Result<QuestionBankItemView> {
     Ok(QuestionBankItemView {
         id: item.id,
@@ -260,4 +347,57 @@ fn deserialize_options(value: Option<String>) -> Result<Vec<QuestionBankOptionVa
         Some(raw) if !raw.trim().is_empty() => Ok(serde_json::from_str(&raw)?),
         _ => Ok(Vec::new()),
     }
+}
+
+fn normalize_zip_file_name(raw_name: String) -> String {
+    let trimmed = raw_name.trim();
+    let fallback = format!(
+        "question-bank-export-{}.zip",
+        Utc::now().format("%Y%m%d-%H%M%S")
+    );
+    if trimmed.is_empty() {
+        return fallback;
+    }
+
+    let mut sanitized = trimmed
+        .chars()
+        .map(|c| match c {
+            '\\' | '/' | ':' | '*' | '?' | '"' | '<' | '>' | '|' => '_',
+            _ => c,
+        })
+        .collect::<String>();
+
+    if sanitized.is_empty() {
+        return fallback;
+    }
+
+    if !sanitized.to_ascii_lowercase().ends_with(".zip") {
+        sanitized.push_str(".zip");
+    }
+
+    sanitized
+}
+
+fn to_package_asset_path(relative_path: &str) -> Result<String> {
+    let normalized = relative_path.trim().replace('\\', "/");
+    if normalized.is_empty() {
+        return Err(anyhow!("图片相对路径为空"));
+    }
+
+    let file_name = normalized
+        .split('/')
+        .filter(|segment| !segment.is_empty())
+        .next_back()
+        .ok_or_else(|| anyhow!("图片相对路径格式不合法"))?
+        .to_string();
+
+    if normalized.contains("/question-bank/content/") {
+        return Ok(format!("assets/content/{}", file_name));
+    }
+
+    if normalized.contains("/question-bank/options/") {
+        return Ok(format!("assets/options/{}", file_name));
+    }
+
+    Ok(format!("assets/options/{}", file_name))
 }

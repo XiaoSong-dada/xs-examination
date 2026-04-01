@@ -126,6 +126,34 @@ pub async fn delete_question_bank_item(
         .map_err(|err| err.to_string())
 }
 
+/// 导出题库资源包（xlsx + 图片）到本机下载目录。
+///
+/// # 参数
+/// - `app_handle`: Tauri 应用句柄，用于解析导出目录。
+/// - `payload`: 包含导出文件名、xlsx 字节与图片路径列表。
+///
+/// # 返回值
+/// - 返回导出包路径和资源统计；写盘、打包或路径解析失败时返回错误字符串。
+#[tauri::command]
+pub async fn export_question_bank_package(
+    app_handle: tauri::AppHandle,
+    payload: question_bank_schema::ExportQuestionBankPackageInput,
+) -> Result<question_bank_schema::ExportQuestionBankPackageOutput, String> {
+    match question_bank_service::export_question_bank_package(
+        &app_handle,
+        payload.file_name,
+        payload.xlsx_bytes,
+        payload.image_relative_paths,
+    ) {
+        Ok(result) => Ok(question_bank_schema::ExportQuestionBankPackageOutput {
+            path: result.output_path,
+            packed_image_count: result.packed_image_count,
+            missing_image_count: result.missing_image_count,
+        }),
+        Err(err) => Err(err.to_string()),
+    }
+}
+
 fn to_question_bank_write_payload(
     r#type: String,
     content: String,

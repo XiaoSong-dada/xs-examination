@@ -1,5 +1,10 @@
 import { dedupePaths } from "@/utils/pathUtils";
-import type { IQuestionBankCreate, IQuestionBankEditor } from "@/types/main";
+import type {
+  IQuestionBankCreate,
+  IQuestionBankEditor,
+  QuestionBankItem,
+  QuestionBankOption,
+} from "@/types/main";
 
 export const questionTypeOptions = [
   { label: "单选题", value: "single" },
@@ -79,4 +84,70 @@ export function toQuestionBankCreatePayload(
     created_at: payload.created_at,
     updated_at: payload.updated_at,
   };
+}
+
+/**
+ * 构造题库资源包导出的 xlsx 行数据。
+ *
+ * @param items - 勾选的题库题目列表。
+ * @returns 返回可直接写入 xlsx 的行对象数组。
+ */
+export function toQuestionBankExportRows(items: QuestionBankItem[]): Array<Record<string, string | number>> {
+  return items.map((item, index) => {
+    const normalizedOptions = (item.options ?? []).map((option) => ({
+      ...option,
+      image_paths: (option.image_paths ?? []).map(toPackageRelativeImagePath),
+    }));
+
+    return {
+      序号: index + 1,
+      题型: item.type,
+      题目内容: item.content,
+      选项: JSON.stringify(normalizedOptions),
+      答案: item.answer,
+      分值: item.score,
+      解析: item.explanation ?? "",
+      题干图片: JSON.stringify(
+        (item.content_image_paths ?? []).map(toPackageRelativeImagePath),
+      ),
+      选项图片映射: JSON.stringify(
+        (item.options ?? []).reduce<Record<string, string[]>>((acc, option) => {
+          if ((option.image_paths ?? []).length > 0) {
+            acc[option.key] = option.image_paths.map(toPackageRelativeImagePath);
+          }
+          return acc;
+        }, {}),
+      ),
+    };
+  });
+}
+
+/**
+ * 汇总题库导出所需的原始图片相对路径（用于后端打包）。
+ *
+ * @param items - 勾选的题库题目列表。
+ * @returns 返回去重后的图片相对路径数组。
+ */
+export function collectQuestionBankExportImagePaths(items: QuestionBankItem[]): string[] {
+  const allPaths: string[] = [];
+  for (const item of items) {
+    allPaths.push(...(item.content_image_paths ?? []));
+    allPaths.push(
+      ...(item.options ?? []).flatMap((option: QuestionBankOption) => option.image_paths ?? []),
+    );
+  }
+  return dedupePaths(allPaths);
+}
+
+function toPackageRelativeImagePath(relativePath: string): string {
+  const normalized = relativePath.trim().replace(/\\/g, "/");
+  if (normalized.includes("/question-bank/content/")) {
+    const name = normalized.split("/").pop() ?? normalized;
+    return `assets/content/${name}`;
+  }
+  if (normalized.includes("/question-bank/options/")) {
+    const name = normalized.split("/").pop() ?? normalized;
+    return `assets/options/${name}`;
+  }
+  return normalized;
 }
