@@ -14,6 +14,7 @@ import {
 import type { ColumnsType } from "antd/es/table";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { formatTimestamp } from "@/utils/dayjs";
+import { dedupePaths } from "@/utils/pathUtils";
 
 import {
   useCreateQuestionBankItem,
@@ -57,10 +58,6 @@ function resolveErrorMessage(error: unknown): string {
   } catch {
     return "未知错误";
   }
-}
-
-function dedupePaths(paths: string[]): string[] {
-  return Array.from(new Set(paths.filter((item) => item.trim().length > 0)));
 }
 
 function normalizeQuestionBankPayload(
@@ -111,8 +108,12 @@ export function QuestionBankPage() {
   const tableHeight = useTableHeight(containerRef, toolbarRef);
 
   const [form] = Form.useForm<IQuestionBankEditor>();
-  const [contentPreviewMap, setContentPreviewMap] = useState<Record<string, string>>({});
-  const [optionPreviewMap, setOptionPreviewMap] = useState<Record<string, string>>({});
+  const [contentPreviewMap, setContentPreviewMap] = useState<
+    Record<string, string>
+  >({});
+  const [optionPreviewMap, setOptionPreviewMap] = useState<
+    Record<string, string>
+  >({});
   const [contentPreviewLoading, setContentPreviewLoading] = useState(false);
   const [optionPreviewLoading, setOptionPreviewLoading] = useState(false);
   const contentImagePaths =
@@ -168,7 +169,9 @@ export function QuestionBankPage() {
       } catch (error) {
         if (!cancelled) {
           setContentPreviewMap({});
-          message.warning(`题干图片预览加载失败：${resolveErrorMessage(error)}`);
+          message.warning(
+            `题干图片预览加载失败：${resolveErrorMessage(error)}`,
+          );
         }
       } finally {
         if (!cancelled) {
@@ -201,7 +204,9 @@ export function QuestionBankPage() {
       } catch (error) {
         if (!cancelled) {
           setOptionPreviewMap({});
-          message.warning(`选项图片预览加载失败：${resolveErrorMessage(error)}`);
+          message.warning(
+            `选项图片预览加载失败：${resolveErrorMessage(error)}`,
+          );
         }
       } finally {
         if (!cancelled) {
@@ -487,7 +492,7 @@ export function QuestionBankPage() {
             <Input.TextArea rows={4} placeholder="请输入题干文本" />
           </Form.Item>
 
-          <Form.Item label="题干图片">
+          <Form.Item label="题干图片" name="content_image_paths">
             <div className="space-y-3">
               <Space>
                 <Button onClick={() => void handlePickContentImages()}>
@@ -518,7 +523,11 @@ export function QuestionBankPage() {
                           />
                         ) : (
                           <div className="w-[120px] h-[120px] border border-slate-200 rounded flex items-center justify-center text-xs text-slate-500 px-2 text-center">
-                            {contentPreviewLoading ? <Spin size="small" /> : "预览不可用"}
+                            {contentPreviewLoading ? (
+                              <Spin size="small" />
+                            ) : (
+                              "预览不可用"
+                            )}
                           </div>
                         )}
                         <Button
@@ -611,7 +620,11 @@ export function QuestionBankPage() {
                           </div>
                         </div>
 
-                        <div className="space-y-3">
+                        <Form.Item
+                          className="space-y-3"
+                          {...fieldProps}
+                          name={[field.name, "image_paths"]}
+                        >
                           <Space>
                             <Button
                               onClick={() => void handlePickOptionImages(index)}
@@ -651,7 +664,11 @@ export function QuestionBankPage() {
                                       />
                                     ) : (
                                       <div className="w-[88px] h-[88px] border border-slate-200 rounded flex items-center justify-center text-xs text-slate-500">
-                                        {optionPreviewLoading ? <Spin size="small" /> : "预览不可用"}
+                                        {optionPreviewLoading ? (
+                                          <Spin size="small" />
+                                        ) : (
+                                          "预览不可用"
+                                        )}
                                       </div>
                                     )}
 
@@ -660,7 +677,9 @@ export function QuestionBankPage() {
                                       shape="circle"
                                       danger
                                       className="absolute -top-1 -right-1"
-                                      onClick={() => removeOptionImage(index, path)}
+                                      onClick={() =>
+                                        removeOptionImage(index, path)
+                                      }
                                     >
                                       ×
                                     </Button>
@@ -669,7 +688,7 @@ export function QuestionBankPage() {
                               ))
                             )}
                           </div>
-                        </div>
+                        </Form.Item>
                       </div>
                     );
                   })}
