@@ -1,10 +1,24 @@
 use anyhow::Result;
 use sea_orm::DatabaseConnection;
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use tauri::AppHandle;
 use tokio::task::JoinHandle;
 use tokio::sync::mpsc::UnboundedSender;
+
+#[derive(Debug, Clone)]
+pub struct ReceivingPackageState {
+    pub exam_id: String,
+    pub student_id: String,
+    pub session_id: String,
+    pub batch_id: String,
+    pub file_path: String,
+    pub sha256: String,
+    pub total_bytes: u64,
+    pub total_chunks: u32,
+    pub received_chunks: u32,
+}
 
 pub struct AppState {
     pub db: DatabaseConnection,
@@ -14,6 +28,7 @@ pub struct AppState {
     reconnect_target: Mutex<Option<(String, String)>>,
     reconnect_task: Mutex<Option<JoinHandle<()>>>,
     last_full_sync_marker: Mutex<Option<(String, i64)>>,
+    receiving_packages: Mutex<HashMap<String, ReceivingPackageState>>,
 }
 
 impl AppState {
@@ -27,6 +42,7 @@ impl AppState {
             reconnect_target: Mutex::new(None),
             reconnect_task: Mutex::new(None),
             last_full_sync_marker: Mutex::new(None),
+            receiving_packages: Mutex::new(HashMap::new()),
         })
     }
 
@@ -111,5 +127,39 @@ impl AppState {
         }
 
         true
+    }
+
+    pub fn set_receiving_package(&self, batch_id: String, state: ReceivingPackageState) {
+        if let Ok(mut guard) = self.receiving_packages.lock() {
+            guard.insert(batch_id, state);
+        }
+    }
+
+    pub fn get_receiving_package(&self, batch_id: &str) -> Option<ReceivingPackageState> {
+        self.receiving_packages
+            .lock()
+            .ok()
+            .and_then(|guard| guard.get(batch_id).cloned())
+    }
+
+    pub fn update_receiving_package<F>(&self, batch_id: &str, mut updater: F) -> Option<ReceivingPackageState>
+    where
+        F: FnMut(&mut ReceivingPackageState),
+    {
+        let Ok(mut guard) = self.receiving_packages.lock() else {
+            return None;
+        };
+        let Some(state) = guard.get_mut(batch_id) else {
+            return None;
+        };
+        updater(state);
+        Some(state.clone())
+    }
+
+    pub fn remove_receiving_package(&self, batch_id: &str) -> Option<ReceivingPackageState> {
+        self.receiving_packages
+            .lock()
+            .ok()
+            .and_then(|mut guard| guard.remove(batch_id))
     }
 }
