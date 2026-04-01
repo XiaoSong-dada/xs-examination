@@ -505,7 +505,7 @@ graph TD
 | network | `network/` | 发现、控制服务、WS 客户端、本机 IP 获取工具 |
 | network-transport | `network/transport/` | WS connect / writer loop、TCP bind/read/write 的薄封装层 |
 | services | `services/` | 业务服务，现包含教师端地址配置、设备 IP 运行态查询、启动恢复、统一自动重连、连接阶段会话预写入、发卷落库、按题答案本地读取、ACK 回写、pending/failed outbox flush 与重连后一轮 full 同步调度 |
-| repos | `repos/` | 数据访问层，负责数据库操作，包括考试会话、考试快照、本地答案和同步队列的 CRUD 操作 |
+| repos | `repos/` | 数据访问层，负责数据库操作，包括考试会话、考试快照、本地答案、同步队列和教师端地址的 CRUD 操作 |
 | schemas | `schemas/` | 控制协议与网络协议结构 |
 | state | `state.rs` | 应用共享状态 |
 | db | `db/` | 本地数据库与实体 |
