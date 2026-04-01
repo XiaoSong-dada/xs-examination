@@ -9,9 +9,11 @@ import {
   Space,
   Table,
   Tag,
+  Image,
 } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { useEffect, useMemo, useRef } from "react";
+import { formatTimestamp } from "@/utils/dayjs";
 
 import {
   useCreateQuestionBankItem,
@@ -20,6 +22,7 @@ import {
   useQuestionBankModal,
   useUpdateQuestionBankItem,
 } from "@/hooks/useQuestionBank";
+import { useFileHooks } from "@/hooks/useFileHooks";
 import { pickImageFilePaths } from "@/services/fileDialogService";
 import { useTableHeight } from "@/hooks/useTableHeight";
 import type {
@@ -56,18 +59,13 @@ function resolveErrorMessage(error: unknown): string {
   }
 }
 
-function formatTimestamp(value: number): string {
-  if (!Number.isFinite(value)) {
-    return "-";
-  }
-  return new Date(value).toLocaleString("zh-CN", { hour12: false });
-}
-
 function dedupePaths(paths: string[]): string[] {
   return Array.from(new Set(paths.filter((item) => item.trim().length > 0)));
 }
 
-function normalizeQuestionBankPayload(values: IQuestionBankEditor): IQuestionBankEditor {
+function normalizeQuestionBankPayload(
+  values: IQuestionBankEditor,
+): IQuestionBankEditor {
   return {
     ...values,
     type: values.type.trim(),
@@ -105,6 +103,7 @@ export function QuestionBankPage() {
   const { createQuestionBankItem } = useCreateQuestionBankItem();
   const { updateQuestionBankItem } = useUpdateQuestionBankItem();
   const { deleteQuestionBankItem } = useDeleteQuestionBankItem();
+  const { uploadQuestionBankImages } = useFileHooks();
   const questionModal = useQuestionBankModal();
 
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -112,8 +111,10 @@ export function QuestionBankPage() {
   const tableHeight = useTableHeight(containerRef, toolbarRef);
 
   const [form] = Form.useForm<IQuestionBankEditor>();
-  const contentImagePaths = Form.useWatch("content_image_paths", form) ?? [];
-  const watchedOptions = Form.useWatch("options", form) ?? [];
+  const contentImagePaths =
+    Form.useWatch("content_image_paths", { form, preserve: true }) ?? [];
+  const watchedOptions =
+    Form.useWatch("options", { form, preserve: true }) ?? [];
 
   useEffect(() => {
     if (!questionModal.visible) {
@@ -143,7 +144,8 @@ export function QuestionBankPage() {
         key: "type",
         width: 120,
         render: (value: string) =>
-          questionTypeOptions.find((item) => item.value === value)?.label ?? value,
+          questionTypeOptions.find((item) => item.value === value)?.label ??
+          value,
       },
       {
         title: "题目内容",
@@ -178,18 +180,20 @@ export function QuestionBankPage() {
           <Space>
             <Button
               type="link"
-              onClick={() => questionModal.openEdit({
-                id: record.id,
-                type: record.type,
-                content: record.content,
-                content_image_paths: record.content_image_paths,
-                options: record.options,
-                answer: record.answer,
-                score: record.score,
-                explanation: record.explanation,
-                created_at: record.created_at,
-                updated_at: record.updated_at,
-              })}
+              onClick={() =>
+                questionModal.openEdit({
+                  id: record.id,
+                  type: record.type,
+                  content: record.content,
+                  content_image_paths: record.content_image_paths,
+                  options: record.options,
+                  answer: record.answer,
+                  score: record.score,
+                  explanation: record.explanation,
+                  created_at: record.created_at,
+                  updated_at: record.updated_at,
+                })
+              }
             >
               编辑
             </Button>
@@ -229,9 +233,15 @@ export function QuestionBankPage() {
     if (selected.length === 0) {
       return;
     }
+
+    const uploaded = await uploadQuestionBankImages(selected, "content");
+    const paths = uploaded.map((item) => item.relative_path);
     form.setFieldValue(
       "content_image_paths",
-      dedupePaths([...(form.getFieldValue("content_image_paths") ?? []), ...selected]),
+      dedupePaths([
+        ...(form.getFieldValue("content_image_paths") ?? []),
+        ...paths,
+      ]),
     );
   };
 
@@ -240,8 +250,15 @@ export function QuestionBankPage() {
     if (selected.length === 0) {
       return;
     }
-    const current = (form.getFieldValue(["options", index, "image_paths"]) ?? []) as string[];
-    form.setFieldValue(["options", index, "image_paths"], dedupePaths([...current, ...selected]));
+
+    const uploaded = await uploadQuestionBankImages(selected, "options");
+    const paths = uploaded.map((item) => item.relative_path);
+    const current = (form.getFieldValue(["options", index, "image_paths"]) ??
+      []) as string[];
+    form.setFieldValue(
+      ["options", index, "image_paths"],
+      dedupePaths([...current, ...paths]),
+    );
   };
 
   const removeContentImage = (path: string) => {
@@ -252,9 +269,9 @@ export function QuestionBankPage() {
   };
 
   const removeOptionImage = (index: number, path: string) => {
-    const current = ((watchedOptions[index]?.image_paths ?? []) as string[]).filter(
-      (item) => item !== path,
-    );
+    const current = (
+      (watchedOptions[index]?.image_paths ?? []) as string[]
+    ).filter((item) => item !== path);
     form.setFieldValue(["options", index, "image_paths"], current);
   };
 
@@ -291,8 +308,14 @@ export function QuestionBankPage() {
 
   return (
     <div className="space-y-4 h-full">
-      <div ref={containerRef} className="bg-white rounded-lg border border-gray-200 p-4 h-full">
-        <div ref={toolbarRef} className="bg-white rounded-lg flex flex-col gap-5 pb-4 w-full">
+      <div
+        ref={containerRef}
+        className="bg-white rounded-lg border border-gray-200 p-4 h-full"
+      >
+        <div
+          ref={toolbarRef}
+          className="bg-white rounded-lg flex flex-col gap-5 pb-4 w-full"
+        >
           <div className="flex flex-wrap gap-4">
             <div className="flex-1 min-w-64 max-w-xl">
               <Input
@@ -388,18 +411,43 @@ export function QuestionBankPage() {
           <Form.Item label="题干图片">
             <div className="space-y-3">
               <Space>
-                <Button onClick={() => void handlePickContentImages()}>选择图片</Button>
-                <Button onClick={() => form.setFieldValue("content_image_paths", [])}>清空</Button>
+                <Button onClick={() => void handlePickContentImages()}>
+                  选择图片
+                </Button>
+                <Button
+                  onClick={() => form.setFieldValue("content_image_paths", [])}
+                >
+                  清空
+                </Button>
               </Space>
               <div className="flex flex-wrap gap-2">
                 {contentImagePaths.length === 0 ? (
                   <span className="text-sm text-slate-400">未选择题干图片</span>
                 ) : (
-                  contentImagePaths.map((path: string) => (
-                    <Tag key={path} closable onClose={() => removeContentImage(path)}>
-                      {path}
-                    </Tag>
-                  ))
+                  <Image.PreviewGroup>
+                    {contentImagePaths.map((path: string) => (
+                      <div key={path} className="relative">
+                        <Image
+                          src={path}
+                          alt="content"
+                          style={{
+                            maxWidth: "120px",
+                            maxHeight: "120px",
+                            objectFit: "cover",
+                          }}
+                        />
+                        <Button
+                          size="small"
+                          shape="circle"
+                          danger
+                          className="absolute -top-2 -right-2"
+                          onClick={() => removeContentImage(path)}
+                        >
+                          ×
+                        </Button>
+                      </div>
+                    ))}
+                  </Image.PreviewGroup>
                 )}
               </div>
             </div>
@@ -409,10 +457,17 @@ export function QuestionBankPage() {
             {(fields, { add, remove }) => (
               <div className="space-y-4">
                 <div className="flex items-center justify-between">
-                  <div className="text-sm font-medium text-slate-700">选项设置</div>
+                  <div className="text-sm font-medium text-slate-700">
+                    选项设置
+                  </div>
                   <Button
                     onClick={() =>
-                      add({ key: `${fields.length + 1}`, text: "", option_type: "text", image_paths: [] })
+                      add({
+                        key: `${fields.length + 1}`,
+                        text: "",
+                        option_type: "text",
+                        image_paths: [],
+                      })
                     }
                     type="primary"
                   >
@@ -421,71 +476,95 @@ export function QuestionBankPage() {
                 </div>
 
                 <div className="h-[300px] overflow-y-auto pr-1 space-y-4">
-                {fields.map((field, index) => {
-                  const { key: _fieldReactKey, ...fieldProps } = field;
-                  const option = (watchedOptions[index] ?? {
-                    key: "",
-                    text: "",
-                    option_type: "text",
-                    image_paths: [],
-                  }) as QuestionBankOption;
-                  const optionImagePaths = option.image_paths ?? [];
+                  {fields.map((field, index) => {
+                    const { key: _fieldReactKey, ...fieldProps } = field;
+                    const option = (watchedOptions[index] ?? {
+                      key: "",
+                      text: "",
+                      option_type: "text",
+                      image_paths: [],
+                    }) as QuestionBankOption;
+                    const optionImagePaths = option.image_paths ?? [];
 
-                  return (
-                    <div key={field.key} className="rounded-lg border border-slate-200 p-4 space-y-3">
-                      <div className="grid grid-cols-[100px_1fr_180px_96px] gap-3 items-start">
-                        <Form.Item
-                          {...fieldProps}
-                          name={[field.name, "key"]}
-                          label="选项键"
-                          rules={[{ required: true, message: "请输入选项键" }]}
-                        >
-                          <Input placeholder="如 A" />
-                        </Form.Item>
-                        <Form.Item {...fieldProps} name={[field.name, "text"]} label="选项文本">
-                          <Input placeholder="请输入选项文本" />
-                        </Form.Item>
-                        <Form.Item
-                          {...fieldProps}
-                          name={[field.name, "option_type"]}
-                          label="选项类型"
-                          rules={[{ required: true, message: "请选择选项类型" }]}
-                        >
-                          <Select options={optionTypeOptions} />
-                        </Form.Item>
-                        <div className="pt-[30px] text-right">
-                          <Button danger onClick={() => remove(field.name)}>
-                            删除
-                          </Button>
+                    return (
+                      <div
+                        key={field.key}
+                        className="rounded-lg border border-slate-200 p-4 space-y-3"
+                      >
+                        <div className="grid grid-cols-[100px_1fr_180px_96px] gap-3 items-start">
+                          <Form.Item
+                            {...fieldProps}
+                            name={[field.name, "key"]}
+                            label="选项键"
+                            rules={[
+                              { required: true, message: "请输入选项键" },
+                            ]}
+                          >
+                            <Input placeholder="如 A" />
+                          </Form.Item>
+                          <Form.Item
+                            {...fieldProps}
+                            name={[field.name, "text"]}
+                            label="选项文本"
+                          >
+                            <Input placeholder="请输入选项文本" />
+                          </Form.Item>
+                          <Form.Item
+                            {...fieldProps}
+                            name={[field.name, "option_type"]}
+                            label="选项类型"
+                            rules={[
+                              { required: true, message: "请选择选项类型" },
+                            ]}
+                          >
+                            <Select options={optionTypeOptions} />
+                          </Form.Item>
+                          <div className="pt-[30px] text-right">
+                            <Button danger onClick={() => remove(field.name)}>
+                              删除
+                            </Button>
+                          </div>
+                        </div>
+
+                        <div className="space-y-3">
+                          <Space>
+                            <Button
+                              onClick={() => void handlePickOptionImages(index)}
+                            >
+                              选择附件图片
+                            </Button>
+                            <Button
+                              onClick={() =>
+                                form.setFieldValue(
+                                  ["options", index, "image_paths"],
+                                  [],
+                                )
+                              }
+                            >
+                              清空图片
+                            </Button>
+                          </Space>
+                          <div className="flex flex-wrap gap-2">
+                            {optionImagePaths.length === 0 ? (
+                              <span className="text-sm text-slate-400">
+                                未选择附件图片
+                              </span>
+                            ) : (
+                              optionImagePaths.map((path) => (
+                                <Tag
+                                  key={`${field.key}-${path}`}
+                                  closable
+                                  onClose={() => removeOptionImage(index, path)}
+                                >
+                                  {path}
+                                </Tag>
+                              ))
+                            )}
+                          </div>
                         </div>
                       </div>
-
-                      <div className="space-y-3">
-                        <Space>
-                          <Button onClick={() => void handlePickOptionImages(index)}>选择附件图片</Button>
-                          <Button onClick={() => form.setFieldValue(["options", index, "image_paths"], [])}>
-                            清空图片
-                          </Button>
-                        </Space>
-                        <div className="flex flex-wrap gap-2">
-                          {optionImagePaths.length === 0 ? (
-                            <span className="text-sm text-slate-400">未选择附件图片</span>
-                          ) : (
-                            optionImagePaths.map((path) => (
-                              <Tag
-                                key={`${field.key}-${path}`}
-                                closable
-                                onClose={() => removeOptionImage(index, path)}
-                              >
-                                {path}
-                              </Tag>
-                            ))
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
+                    );
+                  })}
                 </div>
               </div>
             )}

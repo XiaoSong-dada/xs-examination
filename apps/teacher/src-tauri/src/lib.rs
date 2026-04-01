@@ -71,6 +71,7 @@ pub fn run() {
             controllers::student_exam_controller::end_exam_by_exam_id,
             controllers::question_controller::get_questions,
             controllers::question_controller::bulk_import_questions,
+            controllers::file_asset_controller::upload_local_image_asset,
             controllers::question_bank_controller::get_question_bank_items,
             controllers::question_bank_controller::get_question_bank_item_by_id,
             controllers::question_bank_controller::create_question_bank_item,
