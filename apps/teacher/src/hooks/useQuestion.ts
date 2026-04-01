@@ -3,6 +3,7 @@ import { useCallback, useState } from "react";
 import {
   bulkImportQuestions,
   getQuestionListByExamId,
+  importQuestionPackageByExamId as importQuestionPackageByExamIdService,
 } from "@/services/questionService";
 import type { Question } from "@/types/main";
 
@@ -69,11 +70,39 @@ export const useQuestion = () => {
     [],
   );
 
+  /**
+   * 按考试导入题目资源包（zip），并覆盖写入题目。
+   *
+   * @param examId - 当前选中的考试 ID。
+   * @param packagePath - 资源包绝对路径。
+   * @returns 导入完成后的题目数组。
+   */
+  const importQuestionPackageByExamId = useCallback(
+    async (examId: string, packagePath: string): Promise<Question[]> => {
+      setLoading(true);
+      try {
+        const result = await importQuestionPackageByExamIdService({
+          exam_id: examId,
+          package_path: packagePath,
+        });
+        setQuestions(result);
+        return result;
+      } catch (error) {
+        console.error("[useQuestion] 导入题目资源包失败", error);
+        throw error;
+      } finally {
+        setLoading(false);
+      }
+    },
+    [],
+  );
+
   return {
     questions,
     setQuestions,
     loading,
     fetchQuestionsByExamId,
     importQuestionsByExamId,
+    importQuestionPackageByExamId,
   } as const;
 };

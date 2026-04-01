@@ -19,6 +19,7 @@ use tauri::Manager;
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
             let app_handle = app.handle().clone();
@@ -70,6 +71,15 @@ pub fn run() {
             controllers::student_exam_controller::end_exam_by_exam_id,
             controllers::question_controller::get_questions,
             controllers::question_controller::bulk_import_questions,
+            controllers::question_controller::import_question_package_by_exam_id,
+            controllers::file_asset_controller::upload_local_image_asset,
+            controllers::file_asset_controller::resolve_image_asset_preview,
+            controllers::question_bank_controller::get_question_bank_items,
+            controllers::question_bank_controller::get_question_bank_item_by_id,
+            controllers::question_bank_controller::create_question_bank_item,
+            controllers::question_bank_controller::update_question_bank_item,
+            controllers::question_bank_controller::delete_question_bank_item,
+            controllers::question_bank_controller::export_question_bank_package,
             controllers::network_controller::get_online_students,
         ])
         .run(tauri::generate_context!())

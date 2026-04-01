@@ -6,6 +6,7 @@ import { DevicesPage } from "../pages/Devices/index";
 import { ExamManagePage } from "../pages/ExamManage/index";
 import { GradingPage } from "../pages/Grading/index";
 import { MonitorPage } from "../pages/Monitor/index";
+import { QuestionBankPage } from "../pages/QuestionBank/index";
 import { QuestionImportPage } from "../pages/QuestionImport/index";
 import { ReportPage } from "../pages/Report/index";
 import { StudentImportPage } from "../pages/StudentImport/index";
@@ -40,6 +41,10 @@ export const router = createBrowserRouter([
 			{
 				path: "students",
 				element: <StudentsPage />,
+			},
+			{
+				path: "questions",
+				element: <QuestionBankPage />,
 			},
 			{
 				path: "question/import",
