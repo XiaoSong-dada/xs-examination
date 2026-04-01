@@ -1,6 +1,7 @@
 import {
   Button,
   Form,
+  Spin,
   Input,
   InputNumber,
   message,
@@ -8,11 +9,10 @@ import {
   Select,
   Space,
   Table,
-  Tag,
   Image,
 } from "antd";
 import type { ColumnsType } from "antd/es/table";
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { formatTimestamp } from "@/utils/dayjs";
 
 import {
@@ -103,7 +103,7 @@ export function QuestionBankPage() {
   const { createQuestionBankItem } = useCreateQuestionBankItem();
   const { updateQuestionBankItem } = useUpdateQuestionBankItem();
   const { deleteQuestionBankItem } = useDeleteQuestionBankItem();
-  const { uploadQuestionBankImages } = useFileHooks();
+  const { uploadQuestionBankImages, resolveImagePreviews } = useFileHooks();
   const questionModal = useQuestionBankModal();
 
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -111,10 +111,23 @@ export function QuestionBankPage() {
   const tableHeight = useTableHeight(containerRef, toolbarRef);
 
   const [form] = Form.useForm<IQuestionBankEditor>();
+  const [contentPreviewMap, setContentPreviewMap] = useState<Record<string, string>>({});
+  const [optionPreviewMap, setOptionPreviewMap] = useState<Record<string, string>>({});
+  const [contentPreviewLoading, setContentPreviewLoading] = useState(false);
+  const [optionPreviewLoading, setOptionPreviewLoading] = useState(false);
   const contentImagePaths =
     Form.useWatch("content_image_paths", { form, preserve: true }) ?? [];
   const watchedOptions =
     Form.useWatch("options", { form, preserve: true }) ?? [];
+  const optionImagePaths = useMemo(
+    () =>
+      dedupePaths(
+        (watchedOptions as QuestionBankOption[]).flatMap(
+          (item) => item?.image_paths ?? [],
+        ),
+      ),
+    [watchedOptions],
+  );
 
   useEffect(() => {
     if (!questionModal.visible) {
@@ -135,6 +148,72 @@ export function QuestionBankPage() {
 
     form.resetFields();
   }, [form, questionModal.formData, questionModal.visible]);
+
+  useEffect(() => {
+    if (!questionModal.visible || contentImagePaths.length === 0) {
+      setContentPreviewMap({});
+      setContentPreviewLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    setContentPreviewLoading(true);
+
+    void (async () => {
+      try {
+        const previews = await resolveImagePreviews(contentImagePaths);
+        if (!cancelled) {
+          setContentPreviewMap(previews);
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setContentPreviewMap({});
+          message.warning(`题干图片预览加载失败：${resolveErrorMessage(error)}`);
+        }
+      } finally {
+        if (!cancelled) {
+          setContentPreviewLoading(false);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [contentImagePaths, questionModal.visible, resolveImagePreviews]);
+
+  useEffect(() => {
+    if (!questionModal.visible || optionImagePaths.length === 0) {
+      setOptionPreviewMap({});
+      setOptionPreviewLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    setOptionPreviewLoading(true);
+
+    void (async () => {
+      try {
+        const previews = await resolveImagePreviews(optionImagePaths);
+        if (!cancelled) {
+          setOptionPreviewMap(previews);
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setOptionPreviewMap({});
+          message.warning(`选项图片预览加载失败：${resolveErrorMessage(error)}`);
+        }
+      } finally {
+        if (!cancelled) {
+          setOptionPreviewLoading(false);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [optionImagePaths, questionModal.visible, resolveImagePreviews]);
 
   const columns: ColumnsType<QuestionBankItem> = useMemo(
     () => [
@@ -427,15 +506,21 @@ export function QuestionBankPage() {
                   <Image.PreviewGroup>
                     {contentImagePaths.map((path: string) => (
                       <div key={path} className="relative">
-                        <Image
-                          src={path}
-                          alt="content"
-                          style={{
-                            maxWidth: "120px",
-                            maxHeight: "120px",
-                            objectFit: "cover",
-                          }}
-                        />
+                        {contentPreviewMap[path] ? (
+                          <Image
+                            src={contentPreviewMap[path]}
+                            alt={path}
+                            style={{
+                              maxWidth: "120px",
+                              maxHeight: "120px",
+                              objectFit: "cover",
+                            }}
+                          />
+                        ) : (
+                          <div className="w-[120px] h-[120px] border border-slate-200 rounded flex items-center justify-center text-xs text-slate-500 px-2 text-center">
+                            {contentPreviewLoading ? <Spin size="small" /> : "预览不可用"}
+                          </div>
+                        )}
                         <Button
                           size="small"
                           shape="circle"
@@ -551,13 +636,35 @@ export function QuestionBankPage() {
                               </span>
                             ) : (
                               optionImagePaths.map((path) => (
-                                <Tag
+                                <div
                                   key={`${field.key}-${path}`}
-                                  closable
-                                  onClose={() => removeOptionImage(index, path)}
+                                  className="border border-slate-200 rounded p-2 space-y-2"
                                 >
-                                  {path}
-                                </Tag>
+                                  {optionPreviewMap[path] ? (
+                                    <Image
+                                      src={optionPreviewMap[path]}
+                                      alt={path}
+                                      width={88}
+                                      height={88}
+                                      style={{ objectFit: "cover" }}
+                                    
+                                    >
+                                      <Button
+                                        size="small"
+                                        shape="circle"
+                                        danger
+                                        className="absolute -top-1 -right-1"
+                                        onClick={() => removeOptionImage(index, path)}
+                                      >
+                                        ×
+                                      </Button>
+                                    </Image>
+                                  ) : (
+                                    <div className="w-[88px] h-[88px] border border-slate-200 rounded flex items-center justify-center text-xs text-slate-500">
+                                      {optionPreviewLoading ? <Spin size="small" /> : "预览不可用"}
+                                    </div>
+                                  )}
+                                </div>
                               ))
                             )}
                           </div>

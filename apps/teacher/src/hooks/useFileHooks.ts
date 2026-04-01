@@ -1,6 +1,6 @@
 import { useCallback } from "react";
 
-import { uploadLocalImageAsset } from "@/services/fileAssetService";
+import { resolveImageAssetPreview, uploadLocalImageAsset } from "@/services/fileAssetService";
 import type { UploadLocalImageResult } from "@/types/fileAsset";
 
 /**
@@ -41,8 +41,33 @@ export function useFileHooks() {
     return uploadLocalImages(paths, `question-bank/${folder}`);
   }, [uploadLocalImages]);
 
+  /**
+   * 批量解析图片相对路径为可渲染的缩略图预览地址。
+   *
+   * @param relativePaths - 持久化存储的图片相对路径列表。
+   * @returns 返回以相对路径为 key 的预览地址映射。
+   */
+  const resolveImagePreviews = useCallback(async (
+    relativePaths: string[],
+  ): Promise<Record<string, string>> => {
+    if (relativePaths.length === 0) {
+      return {};
+    }
+
+    const uniquePaths = Array.from(new Set(relativePaths.map((item) => item.trim()).filter(Boolean)));
+    const results = await Promise.all(
+      uniquePaths.map((relative_path) => resolveImageAssetPreview({ relative_path })),
+    );
+
+    return results.reduce<Record<string, string>>((acc, item) => {
+      acc[item.relative_path] = item.preview_url;
+      return acc;
+    }, {});
+  }, []);
+
   return {
     uploadLocalImages,
     uploadQuestionBankImages,
+    resolveImagePreviews,
   };
 }
