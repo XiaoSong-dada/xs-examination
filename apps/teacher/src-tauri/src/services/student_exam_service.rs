@@ -254,14 +254,15 @@ fn build_exam_package_zip(
     let xlsx_path = temp_dir.join("question_bank.xlsx");
     let mut workbook = Workbook::new();
     let worksheet = workbook.add_worksheet();
-    worksheet.write_string(0, 0, "序号")?;
-    worksheet.write_string(0, 1, "题型")?;
-    worksheet.write_string(0, 2, "题目内容")?;
-    worksheet.write_string(0, 3, "题干图片")?;
-    worksheet.write_string(0, 4, "选项")?;
-    worksheet.write_string(0, 5, "答案")?;
-    worksheet.write_string(0, 6, "分值")?;
-    worksheet.write_string(0, 7, "解析")?;
+    worksheet.write_string(0, 0, "题目ID")?;
+    worksheet.write_string(0, 1, "序号")?;
+    worksheet.write_string(0, 2, "题型")?;
+    worksheet.write_string(0, 3, "题目内容")?;
+    worksheet.write_string(0, 4, "题干图片")?;
+    worksheet.write_string(0, 5, "选项")?;
+    worksheet.write_string(0, 6, "答案")?;
+    worksheet.write_string(0, 7, "分值")?;
+    worksheet.write_string(0, 8, "解析")?;
 
     let mut image_source_to_archive: HashMap<String, String> = HashMap::new();
     let mut zip_entries: Vec<ZipAssetEntry> = Vec::new();
@@ -292,14 +293,15 @@ fn build_exam_package_zip(
             &mut zip_entries,
         )?;
 
-        worksheet.write_number(row, 0, q.seq as f64)?;
-        worksheet.write_string(row, 1, &q.r#type)?;
-        worksheet.write_string(row, 2, &q.content)?;
-        worksheet.write_string(row, 3, serde_json::to_string(&content_images)?.as_str())?;
-        worksheet.write_string(row, 4, remapped_options.as_deref().unwrap_or(""))?;
-        worksheet.write_string(row, 5, &q.answer)?;
-        worksheet.write_number(row, 6, q.score as f64)?;
-        worksheet.write_string(row, 7, q.explanation.as_deref().unwrap_or(""))?;
+        worksheet.write_string(row, 0, &q.id)?;
+        worksheet.write_number(row, 1, q.seq as f64)?;
+        worksheet.write_string(row, 2, &q.r#type)?;
+        worksheet.write_string(row, 3, &q.content)?;
+        worksheet.write_string(row, 4, serde_json::to_string(&content_images)?.as_str())?;
+        worksheet.write_string(row, 5, remapped_options.as_deref().unwrap_or(""))?;
+        worksheet.write_string(row, 6, &q.answer)?;
+        worksheet.write_number(row, 7, q.score as f64)?;
+        worksheet.write_string(row, 8, q.explanation.as_deref().unwrap_or(""))?;
     }
 
     workbook.save(&xlsx_path)?;

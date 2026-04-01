@@ -3,6 +3,14 @@ import type { ExamStore, RuntimeQuestion } from "@/types/main";
 import type { ExamQuestionOption } from "@/types/exam";
 import { getCurrentExamBundle } from "@/services/examRuntimeService";
 
+function normalizeImagePath(rawPath: string): string {
+    const normalized = String(rawPath ?? "").trim().replace(/\\/g, "/");
+    if (!normalized) {
+        return "";
+    }
+    return normalized;
+}
+
 function parseOptions(raw?: unknown): ExamQuestionOption[] {
     if (raw == null)return [];
     if (Array.isArray(raw)) {
@@ -16,9 +24,9 @@ function parseOptions(raw?: unknown): ExamQuestionOption[] {
                 text: String(option.text ?? ""),
                 optionType: option.optionType ?? option.option_type ?? "text",
                 imagePaths: Array.isArray(option.imagePaths)
-                    ? option.imagePaths.map((path) => String(path))
+                    ? option.imagePaths.map((path) => normalizeImagePath(String(path))).filter(Boolean)
                     : Array.isArray(option.image_paths)
-                    ? option.image_paths.map((path) => String(path))
+                    ? option.image_paths.map((path) => normalizeImagePath(String(path))).filter(Boolean)
                     : [],
             };
         });
@@ -34,9 +42,11 @@ function parseOptions(raw?: unknown): ExamQuestionOption[] {
                     (item as { option_type?: "text" | "text_with_image" }).option_type ??
                     "text",
                 imagePaths: Array.isArray(item.imagePaths)
-                    ? item.imagePaths.map((path) => String(path))
+                    ? item.imagePaths.map((path) => normalizeImagePath(String(path))).filter(Boolean)
                     : Array.isArray((item as { image_paths?: string[] }).image_paths)
-                    ? ((item as { image_paths?: string[] }).image_paths ?? []).map((path) => String(path))
+                    ? ((item as { image_paths?: string[] }).image_paths ?? [])
+                        .map((path) => normalizeImagePath(String(path)))
+                        .filter(Boolean)
                     : [],
             }));
         }
@@ -70,7 +80,9 @@ function parseQuestions(payload?: string): RuntimeQuestion[] {
             score: Number(item.score ?? 0),
             explanation: typeof item.explanation === "string" ? item.explanation : undefined,
             images: Array.isArray(item.contentImagePaths)
-                ? item.contentImagePaths.map((path) => String(path))
+                ? item.contentImagePaths
+                    .map((path) => normalizeImagePath(String(path)))
+                    .filter(Boolean)
                 : [],
         }));
     } catch (_err) {

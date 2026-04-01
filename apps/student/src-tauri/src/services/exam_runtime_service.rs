@@ -1087,6 +1087,12 @@ fn parse_questions_payload_from_xlsx(
             .or_else(|| row_map.get("seq"))
             .and_then(|v| v.parse::<i32>().ok())
             .unwrap_or((idx + 1) as i32);
+        let question_id = row_map
+            .get("题目ID")
+            .or_else(|| row_map.get("id"))
+            .map(|v| v.trim().to_string())
+            .filter(|v| !v.is_empty())
+            .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
         let qtype = row_map
             .get("题型")
             .or_else(|| row_map.get("type"))
@@ -1153,7 +1159,7 @@ fn parse_questions_payload_from_xlsx(
         };
 
         payloads.push(serde_json::json!({
-            "id": uuid::Uuid::new_v4().to_string(),
+            "id": question_id,
             "seq": seq,
             "type": qtype,
             "content": content,
