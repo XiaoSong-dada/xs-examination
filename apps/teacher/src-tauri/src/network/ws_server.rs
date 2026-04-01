@@ -11,7 +11,8 @@ use crate::core::setting::SETTINGS;
 use crate::network::protocol::{
     AnswerSyncAckPayload, AnswerSyncPayload, ExamEndPayload, ExamStartPayload,
     FinalSyncRequestPayload, MessageType, WsMessage, build_message, decode_value_message,
-    encode_message,
+    encode_message, PaperPackageAckPayload, PaperPackageChunkPayload,
+    PaperPackageManifestPayload,
 };
 use crate::network::transport::ws_transport::{
     accept_ws, new_text_channel, run_text_writer_loop,
@@ -128,6 +129,26 @@ pub fn send_exam_end_to_student(
     Ok(state.send_ws_text_to_student(&envelope.payload.student_id, text))
 }
 
+pub fn send_paper_package_manifest_to_student(
+    app_handle: &tauri::AppHandle,
+    payload: PaperPackageManifestPayload,
+) -> Result<bool> {
+    let envelope = build_message(MessageType::PaperPackageManifest, payload.timestamp, payload);
+    let text = encode_message(&envelope)?;
+    let state = app_handle.state::<crate::state::AppState>();
+    Ok(state.send_ws_text_to_student(&envelope.payload.student_id, text))
+}
+
+pub fn send_paper_package_chunk_to_student(
+    app_handle: &tauri::AppHandle,
+    payload: PaperPackageChunkPayload,
+) -> Result<bool> {
+    let envelope = build_message(MessageType::PaperPackageChunk, payload.timestamp, payload);
+    let text = encode_message(&envelope)?;
+    let state = app_handle.state::<crate::state::AppState>();
+    Ok(state.send_ws_text_to_student(&envelope.payload.student_id, text))
+}
+
 async fn handle_text_message(app_handle: &tauri::AppHandle, peer_id: &str, text: &str) -> Result<()> {
     let envelope: WsMessage<serde_json::Value> = decode_value_message(text)?;
     match envelope.r#type {
@@ -200,6 +221,22 @@ async fn handle_text_message(app_handle: &tauri::AppHandle, peer_id: &str, text:
                     payload.exam_id, payload.student_id
                 );
             }
+        }
+        MessageType::PaperPackageAck => {
+            let payload: PaperPackageAckPayload = serde_json::from_value(envelope.payload)?;
+            let state = app_handle.state::<crate::state::AppState>();
+            state.mark_paper_package_ack(
+                &payload.batch_id,
+                format!(
+                    "{}|{}|{}/{}",
+                    if payload.success { "ok" } else { "fail" },
+                    payload.message,
+                    payload.received_chunks,
+                    payload.total_chunks
+                ),
+            );
+            state.touch_connection(&payload.student_id, envelope.timestamp);
+            state.bind_student_peer(&payload.student_id, peer_id);
         }
         other => {
             println!("[ws-server] received message type: {:?}", other);

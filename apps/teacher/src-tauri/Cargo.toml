@@ -38,6 +38,7 @@ hex = "0.4"
 once_cell = "1.21"
 base64 = "0.22"
 zip = { version = "0.6", default-features = false, features = ["deflate"] }
+rust_xlsxwriter = "0.79"
 
 [features]
 default = ["custom-protocol"]

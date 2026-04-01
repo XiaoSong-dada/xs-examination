@@ -34,4 +34,5 @@ futures-util = "0.3"
 sha2 = "0.10"
 base64 = "0.22"
 zip = { version = "0.6", default-features = false, features = ["deflate"] }
+calamine = "0.26"
 

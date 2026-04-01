@@ -31,6 +31,11 @@ export interface ExamSnapshot {
   questionsPayload: string;
   downloadedAt: number;
   expiresAt?: number;
+  packagePath?: string;
+  packageStatus?: string;
+  packageBatchId?: string;
+  packageSha256?: string;
+  packageReceivedAt?: number;
   assetsSyncStatus?: string;
   assetsSyncedAt?: number;
   updatedAt: number;

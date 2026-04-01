@@ -29,7 +29,21 @@ export default function AnswerList({
             <span className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-current text-xs font-semibold">
               {option.key || `${index + 1}`}
             </span>
-            <span className="text-sm leading-6">{option.text}</span>
+            <span className="flex-1 space-y-2">
+              <span className="block text-sm leading-6">{option.text}</span>
+              {Array.isArray(option.imagePaths) && option.imagePaths.length > 0 ? (
+                <span className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                  {option.imagePaths.map((imagePath, imageIndex) => (
+                    <img
+                      key={`${option.key}-${imagePath}-${imageIndex}`}
+                      src={imagePath}
+                      alt={`选项${option.key}图片${imageIndex + 1}`}
+                      className="h-28 w-full rounded border border-slate-200 object-cover"
+                    />
+                  ))}
+                </span>
+              ) : null}
+            </span>
           </button>
         );
       })}

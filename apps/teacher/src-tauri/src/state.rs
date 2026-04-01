@@ -10,6 +10,7 @@ pub struct AppState {
     ws_peers: DashMap<String, UnboundedSender<String>>,
     student_peer_map: DashMap<String, String>,
     final_sync_tracker: DashMap<String, bool>,
+    paper_package_ack_tracker: DashMap<String, String>,
 }
 
 impl AppState {
@@ -21,6 +22,7 @@ impl AppState {
             ws_peers: DashMap::new(),
             student_peer_map: DashMap::new(),
             final_sync_tracker: DashMap::new(),
+            paper_package_ack_tracker: DashMap::new(),
         })
     }
 
@@ -128,5 +130,16 @@ impl AppState {
         for batch_id in batch_ids {
             self.final_sync_tracker.remove(batch_id);
         }
+    }
+
+    pub fn mark_paper_package_ack(&self, batch_id: &str, message: String) {
+        self.paper_package_ack_tracker
+            .insert(batch_id.to_string(), message);
+    }
+
+    pub fn take_paper_package_ack(&self, batch_id: &str) -> Option<String> {
+        self.paper_package_ack_tracker
+            .remove(batch_id)
+            .map(|(_, value)| value)
     }
 }

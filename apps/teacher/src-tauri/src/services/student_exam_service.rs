@@ -1,20 +1,23 @@
 use anyhow::Result;
+use base64::Engine;
+use rust_xlsxwriter::Workbook;
 use sea_orm::DatabaseConnection;
-use serde_json::json;
 use std::collections::{HashMap, HashSet};
+use std::path::Path;
 use tauri::Manager;
 use tokio::time::{sleep, Duration};
 
 use crate::models::student::Model as StudentModel;
-use crate::core::setting::SETTINGS;
 use crate::network::protocol::{ExamEndPayload, ExamStartPayload, FinalSyncRequestPayload};
-use crate::network::student_control_client;
+use crate::network::protocol::{PaperPackageChunkPayload, PaperPackageManifestPayload};
 use crate::schemas::student_exam_schema;
 use crate::repos::student_exam_repo;
 use crate::services::{exam_service, question_service};
 use crate::utils::datetime::now_ms;
+use crate::utils::asset_zip::{create_asset_zip, ZipAssetEntry};
 
 const HEARTBEAT_TIMEOUT_MS: i64 = 15_000;
+const PACKAGE_CHUNK_SIZE: usize = 64 * 1024;
 
 fn derive_connection_status(ip_addr: Option<&str>, last_heartbeat_at: Option<i64>, now: i64) -> (String, bool) {
     if ip_addr.map(|v| v.trim().is_empty()).unwrap_or(true) {
@@ -108,6 +111,7 @@ pub async fn list_student_device_connection_status_by_exam_id(
 }
 
 pub async fn distribute_exam_papers_by_exam_id(
+    app_handle: &tauri::AppHandle,
     db: &DatabaseConnection,
     exam_id: String,
 ) -> Result<student_exam_schema::DistributeExamPapersOutput> {
@@ -119,37 +123,7 @@ pub async fn distribute_exam_papers_by_exam_id(
     let request_id = uuid::Uuid::new_v4().to_string();
     let now = now_ms();
 
-    let exam_meta = json!({
-        "id": exam.id,
-        "title": exam.title,
-        "description": exam.description,
-        "startTime": exam.start_time,
-        "endTime": exam.end_time,
-        "status": exam.status,
-        "passScore": exam.pass_score,
-        "shuffleQuestions": exam.shuffle_questions,
-        "shuffleOptions": exam.shuffle_options,
-    })
-    .to_string();
-
-    let questions_payload = json!(
-        questions
-            .into_iter()
-            .map(|q| {
-                json!({
-                    "id": q.id,
-                    "seq": q.seq,
-                    "type": q.r#type,
-                    "content": q.content,
-                    "contentImagePaths": q.content_image_paths,
-                    "options": q.options,
-                    "score": q.score,
-                    "explanation": q.explanation,
-                })
-            })
-            .collect::<Vec<_>>()
-    )
-    .to_string();
+    let package = build_exam_package_zip(app_handle, &questions)?;
 
     let mut results = Vec::new();
     for item in assignments {
@@ -160,49 +134,94 @@ pub async fn distribute_exam_papers_by_exam_id(
             continue;
         }
 
-        let req = student_control_client::DistributeExamPaperRequest {
-            r#type: "DISTRIBUTE_EXAM_PAPER".to_string(),
-            request_id: format!("{}-{}", request_id, item.student_exam_id),
-            timestamp: now,
-            payload: student_control_client::DistributeExamPaperPayload {
-                session_id: item.student_exam_id.clone(),
+        let batch_id = format!("{}:{}", request_id, item.student_id);
+        let manifest_sent = crate::network::ws_server::send_paper_package_manifest_to_student(
+            app_handle,
+            PaperPackageManifestPayload {
                 exam_id: exam_id.clone(),
                 student_id: item.student_id.clone(),
-                student_no: item.student_no.clone(),
-                student_name: item.student_name.clone(),
-                assigned_ip_addr: device_ip.clone(),
+                session_id: item.student_exam_id.clone(),
+                batch_id: batch_id.clone(),
+                file_name: package.file_name.clone(),
+                total_bytes: package.total_bytes,
+                total_chunks: package.total_chunks,
+                sha256: package.sha256.clone(),
                 exam_title: exam.title.clone(),
-                status: "waiting".to_string(),
                 assignment_status: "assigned".to_string(),
                 start_time: exam.start_time,
                 end_time: exam.end_time,
                 paper_version: Some(exam.updated_at.to_string()),
-                exam_meta: exam_meta.clone(),
-                questions_payload: questions_payload.clone(),
-                downloaded_at: now,
-                expires_at: exam.end_time,
+                timestamp: now,
             },
-        };
+        )?;
 
-        let control_port = SETTINGS.std_controller_port;
-        match student_control_client::distribute_exam_paper(&device_ip, control_port, &req).await {
-            Ok(ack) => results.push(student_exam_schema::DistributeExamPapersResultItem {
-                student_exam_id: item.student_exam_id,
-                student_id: item.student_id,
-                device_ip,
-                success: ack.payload.success,
-                message: ack.payload.message,
-                session_id: ack.payload.session_id,
-            }),
-            Err(err) => results.push(student_exam_schema::DistributeExamPapersResultItem {
+        if !manifest_sent {
+            results.push(student_exam_schema::DistributeExamPapersResultItem {
                 student_exam_id: item.student_exam_id,
                 student_id: item.student_id,
                 device_ip,
                 success: false,
-                message: err.to_string(),
+                message: "学生端未在线，无法下发试卷包".to_string(),
                 session_id: None,
-            }),
+            });
+            continue;
         }
+
+        let mut send_failed = None;
+        for (chunk_index, chunk) in package.zip_bytes.chunks(PACKAGE_CHUNK_SIZE).enumerate() {
+            let payload = PaperPackageChunkPayload {
+                exam_id: exam_id.clone(),
+                student_id: item.student_id.clone(),
+                session_id: item.student_exam_id.clone(),
+                batch_id: batch_id.clone(),
+                chunk_index: chunk_index as u32,
+                total_chunks: package.total_chunks,
+                content_base64: base64::engine::general_purpose::STANDARD.encode(chunk),
+                is_last: (chunk_index as u32 + 1) == package.total_chunks,
+                timestamp: now_ms(),
+            };
+
+            let sent = crate::network::ws_server::send_paper_package_chunk_to_student(app_handle, payload)?;
+            if !sent {
+                send_failed = Some("试卷包分片发送失败，连接已断开".to_string());
+                break;
+            }
+        }
+
+        if let Some(message) = send_failed {
+            results.push(student_exam_schema::DistributeExamPapersResultItem {
+                student_exam_id: item.student_exam_id,
+                student_id: item.student_id,
+                device_ip,
+                success: false,
+                message,
+                session_id: None,
+            });
+            continue;
+        }
+
+        let ack = wait_for_paper_package_ack(app_handle, &batch_id).await;
+        let (success, message) = match ack {
+            Some(raw) => {
+                if let Some(rest) = raw.strip_prefix("ok|") {
+                    (true, rest.split('|').next().unwrap_or("发卷成功").to_string())
+                } else if let Some(rest) = raw.strip_prefix("fail|") {
+                    (false, rest.split('|').next().unwrap_or("学生端接收失败").to_string())
+                } else {
+                    (false, "学生端ACK格式异常".to_string())
+                }
+            }
+            None => (false, "等待学生端试卷包ACK超时".to_string()),
+        };
+
+        results.push(student_exam_schema::DistributeExamPapersResultItem {
+            student_exam_id: item.student_exam_id.clone(),
+            student_id: item.student_id.clone(),
+            device_ip,
+            success,
+            message,
+            session_id: Some(item.student_exam_id),
+        });
     }
 
     let success_count = results.iter().filter(|item| item.success).count();
@@ -212,6 +231,212 @@ pub async fn distribute_exam_papers_by_exam_id(
         success_count,
         results,
     })
+}
+
+struct ExamPackageBuildResult {
+    file_name: String,
+    zip_bytes: Vec<u8>,
+    total_bytes: u64,
+    total_chunks: u32,
+    sha256: String,
+}
+
+fn build_exam_package_zip(
+    app_handle: &tauri::AppHandle,
+    questions: &[crate::models::question::Model],
+) -> Result<ExamPackageBuildResult> {
+    let app_data_dir = app_handle.path().app_data_dir()?;
+    let temp_dir = app_data_dir
+        .join("temp")
+        .join(format!("exam-distribute-package-{}", uuid::Uuid::new_v4().simple()));
+    std::fs::create_dir_all(&temp_dir)?;
+
+    let xlsx_path = temp_dir.join("question_bank.xlsx");
+    let mut workbook = Workbook::new();
+    let worksheet = workbook.add_worksheet();
+    worksheet.write_string(0, 0, "序号")?;
+    worksheet.write_string(0, 1, "题型")?;
+    worksheet.write_string(0, 2, "题目内容")?;
+    worksheet.write_string(0, 3, "题干图片")?;
+    worksheet.write_string(0, 4, "选项")?;
+    worksheet.write_string(0, 5, "答案")?;
+    worksheet.write_string(0, 6, "分值")?;
+    worksheet.write_string(0, 7, "解析")?;
+
+    let mut image_source_to_archive: HashMap<String, String> = HashMap::new();
+    let mut zip_entries: Vec<ZipAssetEntry> = Vec::new();
+    let mut dedupe_archive_paths: HashSet<String> = HashSet::new();
+
+    for (index, q) in questions.iter().enumerate() {
+        let row = (index + 1) as u32;
+
+        let content_images = parse_json_string_vec(q.content_image_paths.as_deref())
+            .into_iter()
+            .map(|path| {
+                map_source_image_to_archive(
+                    &app_data_dir,
+                    &path,
+                    "content",
+                    &mut image_source_to_archive,
+                    &mut dedupe_archive_paths,
+                    &mut zip_entries,
+                )
+            })
+            .collect::<Vec<String>>();
+
+        let remapped_options = remap_options_for_package(
+            q.options.as_deref(),
+            &app_data_dir,
+            &mut image_source_to_archive,
+            &mut dedupe_archive_paths,
+            &mut zip_entries,
+        )?;
+
+        worksheet.write_number(row, 0, q.seq as f64)?;
+        worksheet.write_string(row, 1, &q.r#type)?;
+        worksheet.write_string(row, 2, &q.content)?;
+        worksheet.write_string(row, 3, serde_json::to_string(&content_images)?.as_str())?;
+        worksheet.write_string(row, 4, remapped_options.as_deref().unwrap_or(""))?;
+        worksheet.write_string(row, 5, &q.answer)?;
+        worksheet.write_number(row, 6, q.score as f64)?;
+        worksheet.write_string(row, 7, q.explanation.as_deref().unwrap_or(""))?;
+    }
+
+    workbook.save(&xlsx_path)?;
+    zip_entries.push(ZipAssetEntry {
+        source_path: xlsx_path.clone(),
+        archive_path: "question_bank.xlsx".to_string(),
+    });
+
+    let zip_path = temp_dir.join("exam_package.zip");
+    create_asset_zip(&zip_path, &zip_entries)?;
+    let zip_bytes = std::fs::read(&zip_path)?;
+    let total_bytes = zip_bytes.len() as u64;
+    let total_chunks = ((zip_bytes.len() + PACKAGE_CHUNK_SIZE - 1) / PACKAGE_CHUNK_SIZE) as u32;
+    let sha256 = sha256_hex(&zip_bytes);
+
+    let _ = std::fs::remove_dir_all(&temp_dir);
+
+    Ok(ExamPackageBuildResult {
+        file_name: "exam_package.zip".to_string(),
+        zip_bytes,
+        total_bytes,
+        total_chunks,
+        sha256,
+    })
+}
+
+fn parse_json_string_vec(raw: Option<&str>) -> Vec<String> {
+    let Some(value) = raw else {
+        return Vec::new();
+    };
+    serde_json::from_str::<Vec<String>>(value).unwrap_or_default()
+}
+
+fn remap_options_for_package(
+    raw: Option<&str>,
+    app_data_dir: &Path,
+    source_to_archive: &mut HashMap<String, String>,
+    dedupe_archive_paths: &mut HashSet<String>,
+    zip_entries: &mut Vec<ZipAssetEntry>,
+) -> Result<Option<String>> {
+    let Some(value) = raw else {
+        return Ok(None);
+    };
+
+    let Ok(mut options) = serde_json::from_str::<Vec<serde_json::Value>>(value) else {
+        return Ok(Some(value.to_string()));
+    };
+
+    for option in &mut options {
+        let images = option
+            .get("image_paths")
+            .and_then(|v| v.as_array())
+            .cloned()
+            .unwrap_or_default();
+
+        let remapped = images
+            .into_iter()
+            .filter_map(|v| v.as_str().map(|s| s.to_string()))
+            .map(|path| {
+                map_source_image_to_archive(
+                    app_data_dir,
+                    &path,
+                    "options",
+                    source_to_archive,
+                    dedupe_archive_paths,
+                    zip_entries,
+                )
+            })
+            .map(serde_json::Value::String)
+            .collect::<Vec<_>>();
+
+        if let Some(object) = option.as_object_mut() {
+            object.insert("image_paths".to_string(), serde_json::Value::Array(remapped));
+        }
+    }
+
+    Ok(Some(serde_json::to_string(&options)?))
+}
+
+fn map_source_image_to_archive(
+    app_data_dir: &Path,
+    source_path: &str,
+    scope: &str,
+    source_to_archive: &mut HashMap<String, String>,
+    dedupe_archive_paths: &mut HashSet<String>,
+    zip_entries: &mut Vec<ZipAssetEntry>,
+) -> String {
+    let normalized = source_path.trim().replace('\\', "/");
+    if let Some(mapped) = source_to_archive.get(&normalized) {
+        return mapped.clone();
+    }
+
+    let source_abs = app_data_dir.join(normalized.trim_start_matches('/'));
+    if !source_abs.exists() {
+        return normalized;
+    }
+
+    let file_name = source_abs
+        .file_name()
+        .and_then(|v| v.to_str())
+        .unwrap_or("asset.bin");
+    let archive_path = format!(
+        "assets/{}/{}_{}",
+        scope,
+        uuid::Uuid::new_v4().simple(),
+        file_name
+    );
+
+    if dedupe_archive_paths.insert(archive_path.clone()) {
+        zip_entries.push(ZipAssetEntry {
+            source_path: source_abs,
+            archive_path: archive_path.clone(),
+        });
+    }
+
+    source_to_archive.insert(normalized, archive_path.clone());
+    archive_path
+}
+
+fn sha256_hex(bytes: &[u8]) -> String {
+    use sha2::Digest;
+    let mut hasher = sha2::Sha256::new();
+    hasher.update(bytes);
+    hex::encode(hasher.finalize())
+}
+
+async fn wait_for_paper_package_ack(app_handle: &tauri::AppHandle, batch_id: &str) -> Option<String> {
+    let state = app_handle.state::<crate::state::AppState>();
+    let mut waited_ms = 0;
+    while waited_ms < 20_000 {
+        if let Some(message) = state.take_paper_package_ack(batch_id) {
+            return Some(message);
+        }
+        sleep(Duration::from_millis(200)).await;
+        waited_ms += 200;
+    }
+    None
 }
 
 pub async fn start_exam_by_exam_id(
