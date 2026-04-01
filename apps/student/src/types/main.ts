@@ -31,6 +31,8 @@ export interface ExamSnapshot {
   questionsPayload: string;
   downloadedAt: number;
   expiresAt?: number;
+  assetsSyncStatus?: string;
+  assetsSyncedAt?: number;
   updatedAt: number;
 }
 

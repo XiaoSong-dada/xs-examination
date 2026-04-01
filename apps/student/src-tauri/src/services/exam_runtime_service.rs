@@ -568,6 +568,8 @@ impl ExamRuntimeService {
                 model.questions_payload = Set(payload.questions_payload.clone().into_bytes());
                 model.downloaded_at = Set(payload.downloaded_at);
                 model.expires_at = Set(payload.expires_at);
+                model.assets_sync_status = Set(Some("pending".to_string()));
+                model.assets_synced_at = Set(None);
                 model.updated_at = Set(ts);
                 model.update(&state.db).await?;
             }
@@ -578,6 +580,8 @@ impl ExamRuntimeService {
                     questions_payload: Set(payload.questions_payload.clone().into_bytes()),
                     downloaded_at: Set(payload.downloaded_at),
                     expires_at: Set(payload.expires_at),
+                    assets_sync_status: Set(Some("pending".to_string())),
+                    assets_synced_at: Set(None),
                     updated_at: Set(ts),
                 };
                 model.insert(&state.db).await?;
@@ -748,6 +752,8 @@ impl ExamRuntimeService {
                 questions_payload: String::from_utf8_lossy(&item.questions_payload).to_string(),
                 downloaded_at: item.downloaded_at,
                 expires_at: item.expires_at,
+                assets_sync_status: item.assets_sync_status,
+                assets_synced_at: item.assets_synced_at,
                 updated_at: item.updated_at,
             }),
         })

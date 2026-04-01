@@ -141,6 +141,7 @@ pub async fn distribute_exam_papers_by_exam_id(
                     "seq": q.seq,
                     "type": q.r#type,
                     "content": q.content,
+                    "contentImagePaths": q.content_image_paths,
                     "options": q.options,
                     "score": q.score,
                     "explanation": q.explanation,

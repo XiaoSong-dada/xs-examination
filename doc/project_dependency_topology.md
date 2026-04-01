@@ -182,7 +182,7 @@ graph TD
 - `pages/Monitor` 与 `pages/Report` 现在都不再使用硬编码 0 展示答题进度，而是分别通过 `hooks/useMonitor.ts`、`hooks/useReport.ts` 调用 `services/studentService.ts`，读取教师端 `get_student_device_connection_status_by_exam_id` 返回的真实 `progress_percent`。
 - `pages/Report` 当前还承载“统计成绩 -> 导出成绩”的新闭环：`hooks/useReport.ts` 会同时读取 `get_student_score_summary_by_exam_id`，在点击“统计成绩”时调用 `calculate_student_score_summary_by_exam_id` 重算并覆盖写入 `score_summary`，在点击“导出成绩”时通过前端 `XLSX.writeFile` 触发本地下载，并调用 `resolve_report_download_path` 给出预期下载位置。
 - `pages/QuestionBank` 现在除了题目 CRUD，还承载完整的资源包进出口：一方面可以“勾选题目 -> 前端生成 `question_bank.xlsx` -> 调用后端打包 zip”，另一方面也可以在用户确认后调用后端“先清空 `question_bank_items` 再导入 zip 资源包”。对应编排已下沉到 `services/questionBankEditorService.ts` 与 `services/questionService.ts`。
-- `pages/QuestionImport` 目前仍保留资源包导入支线，但它的真实出口是按 `exam_id` 覆盖写入 `questions`，与 `QuestionBank` 页的“清空后回写 `question_bank_items`”属于两条不同链路。
+- `pages/QuestionImport` 目前仍保留资源包导入支线，但它的真实出口是按 `exam_id` 覆盖写入 `questions`；2026-04-01 起这条支线已补齐图片资源处理，导入时会把 zip 中的 `assets/content`、`assets/options` 复制到 `uploads/images/questions/{exam_id}/...`，并把 `content_image_paths` 与选项 `image_paths` 一并写回 `questions`。
 - `pages/ExamManage` 现在不仅负责考试状态展示，还通过 `hooks/useExamManage.ts` 调用 `services/studentService.ts` 触发“分发试卷”“开始考试”“结束考试”三条链路；其中“结束考试”链路会继续下沉到教师端 WebSocket 服务，向在线学生发送 final 同步请求与 `EXAM_END`，并在 final ACK 收敛后把教师端考试状态更新为 `finished`。
 - `pages/ExamManage` 的“设备状态”现已不再基于 `ip_addr` 做二态推断，而是复用 `get_student_device_connection_status_by_exam_id` 返回的四态结果，并按 5 秒轮询刷新，和 `DeviceAssign`、`Monitor` 保持一致口径。
 - 这意味着教师端前端里除了“实时连接状态”与“成绩统计导出”外，又新增了一条独立题库工具链：`QuestionBank -> questionBankEditorService/questionService -> question_bank_controller/question_bank_service -> asset_zip` 同时负责资源包导出与“确认后清空并回写 `question_bank_items`”；而 `QuestionImport -> useQuestion/questionService -> question_controller/question_service` 仍保留按考试覆盖导入 `questions` 的并行支线。“答题进度”这条链路仍收敛为 `Monitor + Report -> services/studentService.ts -> teacher-rust` 的统一查询口径。
@@ -205,7 +205,7 @@ graph TD
 
 - `hooks` 对 `services` 的扇出现在不只覆盖考试管理、分配与监考，还额外包含 Report 页的三类调用：进度查询、成绩统计、导出位置解析。
 - `services/studentService.ts` 对教师端 Rust 的扇出也随之扩大到五条报告相关命令：`get_student_device_connection_status_by_exam_id`、`get_student_score_summary_by_exam_id`、`calculate_student_score_summary_by_exam_id`、`resolve_report_download_path`，以及导出完成后配套的 `update_exam` 状态归档链路。
-- `services/questionService.ts` 当前也不再只承载按考试查询题目与批量导入，它还扩展了三条资源包调用路径：`export_question_bank_package`、`import_question_bank_package`、`import_question_package_by_exam_id`；其中前两条对接 `question_bank_controller`，后一条仍对接 `question_controller`。
+- `services/questionService.ts` 当前也不再只承载按考试查询题目与批量导入，它还扩展了三条资源包调用路径：`export_question_bank_package`、`import_question_bank_package`、`import_question_package_by_exam_id`；其中前两条对接 `question_bank_controller`，后一条仍对接 `question_controller`，并已升级为“按考试导入 xlsx + 图片资源包”的完整链路。
 
 ### 4.5 快速定位
 
@@ -224,7 +224,7 @@ graph TD
 - 若任务是“考试管理页设备状态不正确或与分配页监考页不一致”，优先看 `hooks/useExamManage.ts`、`hooks/useDeviceAssign.ts`、`services/studentService.ts`、`types/main.ts`。
 - 若任务是“题目列表为什么没有导出 zip / 导出包里缺图 / 保存路径在哪里”，优先看 `pages/QuestionBank`、`services/questionBankEditorService.ts`、`services/questionService.ts`、教师端 `controllers/question_bank_controller.rs`、`services/question_bank_service.rs` 与 `utils/asset_zip.rs`。
 - 若任务是“题目列表导入资源包为什么没有弹确认 / 为什么导入后列表被清空 / 为什么没有写进 `question_bank_items`”，优先看 `pages/QuestionBank`、`services/questionService.ts`、教师端 `controllers/question_bank_controller.rs`、`services/question_bank_service.rs` 与 `repos/question_bank_repo.rs`。
-- 若任务是“题库导入页为什么不能识别资源包 / zip 导入后考试题目为空”，优先看 `pages/QuestionImport`、`hooks/useQuestion.ts`、`services/questionService.ts`、教师端 `controllers/question_controller.rs` 与 `services/question_service.rs`。
+- 若任务是“题库导入页为什么不能识别资源包 / zip 导入后考试题目为空 / 图片路径没有映射到考试目录”，优先看 `pages/QuestionImport`、`hooks/useQuestion.ts`、`services/questionService.ts`、教师端 `controllers/question_controller.rs` 与 `services/question_service.rs`。
 - 若任务是“成绩报告页为什么分值仍为 0 / 统计成绩不生效”，优先看 `pages/Report`、`hooks/useReport.ts`、`services/studentService.ts`、教师端 `controllers/student_exam_controller.rs`、`services/student_exam_service.rs`、`repos/student_exam_repo.rs`。
 - 若任务是“成绩报告导出到了哪里 / 为什么下载后文件异常”，优先看 `hooks/useReport.ts` 中的 `XLSX.writeFile` 与 `resolve_report_download_path`，再看教师端 `controllers/student_exam_controller.rs` 的下载目录解析逻辑。
 
@@ -702,6 +702,7 @@ graph TD
 | 教师端结束考试并触发学生端最终同步 | 适合排查 `FINAL_SYNC_REQUEST`、`EXAM_END`、学生端 `ended` 状态落库、教师端 final ACK 收敛，以及 `finished` 后拒收答案的门禁。 | `doc/e2e/e2e-minimal-end-exam-final-sync-chain.md` |
 | 教师端成绩报告统计与导出 | 适合排查 Report 页为何只显示进度不显示分值、为什么统计成绩未落库到 `score_summary`、为什么导出后状态未归档，以及导出位置提示来自哪里。 | `doc/e2e/e2e-minimal-score-report-chain.md` |
 | 教师端题目列表导出资源包并回导入全局题库 | 适合排查 QuestionBank 勾选导出、导入前确认弹窗、清空 `question_bank_items`、zip 结构、`question_bank.xlsx` 字段兼容以及图片路径回写。 | `doc/e2e/e2e-minimal-question-bank-package-chain.md` |
+| 教师端按考试导入题目资源包 | 适合排查 QuestionImport 选考试导入 zip、`questions` 覆盖写入、`content_image_paths` / `options.image_paths` 映射，以及后续发卷读取图片字段的上游来源。 | `doc/e2e/e2e-minimal-question-import-package-chain.md` |
 
 若现有任务改变了这些链路的入口、出口、关键持久化落点、主查询来源或页面验证面，应同步更新对应 e2e 文档，并回写本图谱中的业务映射。
 
@@ -735,7 +736,9 @@ graph TD
 24. 2026-03-25 起，教师端 Report 页已不再只是读取进度的展示页，而是新增了“统计成绩 -> 写入 `score_summary` -> 导出成绩 -> 归档考试”的完整链路；对应前端入口收敛在 `pages/Report/useReport/studentService.ts`，后端入口收敛在 `student_exam_controller/student_exam_service/student_exam_repo`。
 25. 同日，成绩报告导出恢复为前端 `XLSX.writeFile` 触发本地下载，而下载位置提示通过教师端 Rust `resolve_report_download_path` 返回系统下载目录下的预期文件路径；因此“能否触发下载”和“提示给出的路径在哪里”已经拆成两条不同职责的子链路。
 26. 2026-04-01 起，教师端题目工具链新增“QuestionBank 勾选导出资源包 -> QuestionBank 确认后清空并导入全局题库”的前置闭环：前端通过 `questionService` 调用 `export_question_bank_package` 与 `import_question_bank_package`，后端由 `question_bank_service` 负责打包 `question_bank.xlsx + assets`、解压资源包、清空 `question_bank_items`，并把题目与图片路径重新写回题库表。
-27. 同日，`QuestionImport` 中按考试导入 zip 到 `questions` 的能力仍并行保留；因此当前仓库里“资源包导入”已经分裂为两条不同出口：一条写 `question_bank_items`，一条写 `questions`，排查时必须先区分入口页面。
+27. 同日，`QuestionImport` 中按考试导入 zip 到 `questions` 的能力也被补齐为图片资源包链路：后端会把 `assets/content`、`assets/options` 复制到 `uploads/images/questions/{exam_id}/...`，并把 `content_image_paths`、选项 `image_paths` 写回 `questions`，供后续发卷时组装 `questions_payload`。
+28. 同日，学生端为后续图片同步预留了新的本地落点：`exam_question_assets` 负责记录按会话/题目维度的图片资产映射，`exam_snapshots` 新增 `assets_sync_status/assets_synced_at` 用于区分“试卷元数据已落库”和“图片资源已就绪”两个状态。
+29. 因此当前仓库里“资源包导入”已经稳定分成两条不同出口：`QuestionBank` 写 `question_bank_items`，`QuestionImport` 写 `questions`；而“图片真正发到学生端”仍是后续独立链路，不能把教师端图片路径映射误认为学生端图片已可用。
 
 ---
 

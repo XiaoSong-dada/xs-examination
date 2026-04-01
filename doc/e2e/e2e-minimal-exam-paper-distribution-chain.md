@@ -113,7 +113,7 @@
 
 这里有一个需要额外明确的上游边界：
 
-当前 `question_service::list_questions` 读取的考试题目，主要来自按考试写入 `questions` 表的上游入口，例如旧的纯 xlsx 导入或 `QuestionImport` 页的按考试导入链路。
+当前 `question_service::list_questions` 读取的考试题目，主要来自按考试写入 `questions` 表的上游入口，例如旧的纯 xlsx 导入或 `QuestionImport` 页的按考试导入链路；2026-04-01 起，这条按考试导入链路已支持把资源包中的题干图、选项图映射为 `questions.content_image_paths` 与 `options.image_paths`。
 
 需要明确一个边界：
 
@@ -160,6 +160,11 @@
 
 1. `exam_meta`：考试元信息 JSON 字符串。
 2. `questions_payload`：题目列表 JSON 字符串。
+
+2026-04-01 起还需要额外注意一个字段事实：
+
+1. 教师端发卷时已开始把 `questions.content_image_paths` 透传为 `questions_payload[*].contentImagePaths`。
+2. 当前选项图片仍保留在 `options` JSON 结构内，尚未在这条 e2e 文档中展开最终学生端渲染格式。
 
 这意味着学生端“接收试卷”并不是再回源查询教师端数据库，而是直接接收教师端已经打包好的试卷内容并本地落库。
 
@@ -231,10 +236,12 @@
 2. `questions_payload`
 3. `downloaded_at`
 4. `expires_at`
+5. `assets_sync_status = pending`
+6. `assets_synced_at = null`
 
 所以最准确的“项目出口”写法应当是：
 
-学生端 `ExamRuntimeService::upsert_distribution` 成功把试卷会话和试卷快照写入本地数据库。
+学生端 `ExamRuntimeService::upsert_distribution` 成功把试卷会话和试卷快照写入本地数据库，并把图片资源同步状态初始化为待完成。
 
 ## 学生端页面为什么会显示“已收到试卷”
 
@@ -274,6 +281,7 @@
 ## 相关阅读
 
 1. [项目依赖拓扑图](../project_dependency_topology.md)
-2. [教师端题目列表导出资源包并回导入考试题库的最短 e2e 链路](./e2e-minimal-question-bank-package-chain.md)
+2. [教师端题目列表导出资源包并回导入全局题库的最短 e2e 链路](./e2e-minimal-question-bank-package-chain.md)
+3. [教师端按考试导入题目资源包的最短 e2e 链路](./e2e-minimal-question-import-package-chain.md)
 
 教师端考试管理页点击“分发试卷”后，经前端 invoke 调用教师端 Rust `distribute_exam_papers_by_exam_id`，教师端按已分配学生设备 IP 逐台 TCP 发送 `DISTRIBUTE_EXAM_PAPER` 到学生端控制端口，学生端 `control_server` 收到请求后调用 `ExamRuntimeService::upsert_distribution` 把 `exam_sessions` 和 `exam_snapshots` 落库成功，这就是“学生端已接收试卷”的真正出口。

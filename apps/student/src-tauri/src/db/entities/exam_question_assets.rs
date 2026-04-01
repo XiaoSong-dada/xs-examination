@@ -1,16 +1,18 @@
 use sea_orm::entity::prelude::*;
 
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel)]
-#[sea_orm(table_name = "exam_snapshots")]
+#[sea_orm(table_name = "exam_question_assets")]
 pub struct Model {
     #[sea_orm(primary_key)]
+    pub id: String,
     pub session_id: String,
-    pub exam_meta: Vec<u8>,
-    pub questions_payload: Vec<u8>,
-    pub downloaded_at: i64,
-    pub expires_at: Option<i64>,
-    pub assets_sync_status: Option<String>,
-    pub assets_synced_at: Option<i64>,
+    pub exam_id: String,
+    pub question_id: String,
+    pub scope: String,
+    pub asset_local_path: String,
+    pub source_archive_path: Option<String>,
+    pub checksum: Option<String>,
+    pub created_at: i64,
     pub updated_at: i64,
 }
 

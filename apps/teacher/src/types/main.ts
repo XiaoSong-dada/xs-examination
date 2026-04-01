@@ -52,6 +52,7 @@ export interface Question {
   seq: number;
   type: string;
   content: string;
+  content_image_paths?: string;
   options?: string;
   answer: string;
   score: number;

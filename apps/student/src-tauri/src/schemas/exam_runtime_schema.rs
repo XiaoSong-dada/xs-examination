@@ -29,6 +29,8 @@ pub struct ExamSnapshotDto {
     pub questions_payload: String,
     pub downloaded_at: i64,
     pub expires_at: Option<i64>,
+    pub assets_sync_status: Option<String>,
+    pub assets_synced_at: Option<i64>,
     pub updated_at: i64,
 }
 
