@@ -111,6 +111,12 @@
 
 - `distribute_exam_papers_by_exam_id`
 
+这里有一个需要额外明确的上游边界：
+
+当前 `question_service::list_questions` 读取的考试题目，既可能来自旧的纯 xlsx 导入，也可能来自新的“题目列表勾选导出资源包 -> QuestionImport 导入资源包”链路。
+
+但无论题目最初来自哪个上游入口，对这条发卷最短链路来说，真正的起点仍然是“教师端已经能从 `questions` 表读到该考试题目”，而不是题目最初是怎么被准备出来的。
+
 这个函数的最小职责链如下：
 
 1. `exam_service::get_exam_by_id` 读取考试信息。
@@ -251,11 +257,19 @@
 3. 学生端把 `exam_sessions.status` 从 `waiting` 改成 `active`。
 4. 学生端答题同步。
 5. 教师端监考页状态聚合。
+6. 教师端题目列表勾选导出资源包，以及 `QuestionImport` 对 zip 资源包的回导入。
 
 这些都是发卷之后的下一段链路，不应和“接收试卷”混写在同一条最短路径里。
 
 ## 一句话版本
 
 如果只保留一句话，这条最短 e2e 链路可以写成：
+
+教师端 `ExamManage -> useExamManage -> studentService -> student_exam_controller -> student_exam_service -> student_control_client` 把 `questions` 表中的考试题目打包成 `DISTRIBUTE_EXAM_PAPER` 下发到学生端，学生端 `control_server -> ExamRuntimeService::upsert_distribution` 成功把试卷会话与快照落入本地数据库。
+
+## 相关阅读
+
+1. [项目依赖拓扑图](../project_dependency_topology.md)
+2. [教师端题目列表导出资源包并回导入考试题库的最短 e2e 链路](./e2e-minimal-question-bank-package-chain.md)
 
 教师端考试管理页点击“分发试卷”后，经前端 invoke 调用教师端 Rust `distribute_exam_papers_by_exam_id`，教师端按已分配学生设备 IP 逐台 TCP 发送 `DISTRIBUTE_EXAM_PAPER` 到学生端控制端口，学生端 `control_server` 收到请求后调用 `ExamRuntimeService::upsert_distribution` 把 `exam_sessions` 和 `exam_snapshots` 落库成功，这就是“学生端已接收试卷”的真正出口。
