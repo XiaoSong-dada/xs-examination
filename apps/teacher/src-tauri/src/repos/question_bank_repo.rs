@@ -133,3 +133,15 @@ pub async fn delete_question_bank_item_by_id(db: &DatabaseConnection, id: &str) 
     }
     Ok(())
 }
+
+/// 清空全局题库表中的全部题目。
+///
+/// # 参数
+/// - `db`: 数据库连接。
+///
+/// # 返回值
+/// - 返回被删除的数据条数；删除失败时返回错误。
+pub async fn delete_all_question_bank_items(db: &DatabaseConnection) -> Result<u64> {
+    let result = QuestionBankItemEntity::delete_many().exec(db).await?;
+    Ok(result.rows_affected)
+}

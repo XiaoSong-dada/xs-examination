@@ -83,3 +83,13 @@ pub struct ExportQuestionBankPackageOutput {
     pub packed_image_count: usize,
     pub missing_image_count: usize,
 }
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct ImportQuestionBankPackageInput {
+    pub package_path: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ImportQuestionBankPackageOutput {
+    pub imported_count: usize,
+}

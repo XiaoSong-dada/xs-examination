@@ -21,7 +21,11 @@ import {
   useQuestionBankList,
 } from "@/hooks/useQuestionBank";
 import { useQuestionBankEditor } from "@/hooks/useQuestionBankEditor";
-import { exportQuestionBankPackage } from "@/services/questionService";
+import { pickQuestionPackageFilePath } from "@/services/fileDialogService";
+import {
+  exportQuestionBankPackage,
+  importQuestionBankPackage,
+} from "@/services/questionService";
 import { useTableHeight } from "@/hooks/useTableHeight";
 import {
   collectQuestionBankExportImagePaths,
@@ -61,6 +65,7 @@ export function QuestionBankPage() {
   const tableHeight = useTableHeight(containerRef, toolbarRef);
   const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
   const [exporting, setExporting] = useState(false);
+  const [importingPackage, setImportingPackage] = useState(false);
   const {
     form,
     questionModal,
@@ -226,6 +231,36 @@ export function QuestionBankPage() {
     }
   };
 
+  const handleImportPackage = async () => {
+    const packagePath = await pickQuestionPackageFilePath();
+    if (!packagePath) {
+      return;
+    }
+
+    Modal.confirm({
+      title: "确认导入资源包",
+      content: "导入将先清空当前题目列表中的全部数据，是否继续？",
+      okText: "确认导入",
+      cancelText: "取消",
+      okButtonProps: { danger: true, loading: importingPackage },
+      onOk: async () => {
+        setImportingPackage(true);
+        try {
+          const result = await importQuestionBankPackage({
+            package_path: packagePath,
+          });
+          message.success(`导入成功，共 ${result.imported_count} 条题目`);
+          await refresh();
+          setSelectedRowKeys([]);
+        } catch (error) {
+          message.error(resolveQuestionBankErrorMessage(error));
+        } finally {
+          setImportingPackage(false);
+        }
+      },
+    });
+  };
+
   return (
     <div className="space-y-4 h-full">
       <div
@@ -265,6 +300,12 @@ export function QuestionBankPage() {
             <Space>
               <Button type="primary" onClick={questionModal.openCreate}>
                 新增题目
+              </Button>
+              <Button
+                loading={importingPackage}
+                onClick={() => void handleImportPackage()}
+              >
+                导入资源包
               </Button>
               <Button
                 onClick={() => void handleExport()}

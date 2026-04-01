@@ -31,6 +31,10 @@ interface ImportQuestionPackagePayload {
   package_path: string;
 }
 
+interface ImportQuestionBankPackagePayload {
+  package_path: string;
+}
+
 /**
  * 按考试查询题目列表。
  */
@@ -128,4 +132,18 @@ export async function importQuestionPackageByExamId(
   payload: ImportQuestionPackagePayload,
 ): Promise<Question[]> {
   return invoke<Question[]>("import_question_package_by_exam_id", { payload });
+}
+
+/**
+ * 导入题库资源包到全局题库表。
+ *
+ * @param payload - 资源包绝对路径。
+ * @returns 返回导入条数。
+ */
+export async function importQuestionBankPackage(
+  payload: ImportQuestionBankPackagePayload,
+): Promise<{ imported_count: number }> {
+  return invoke<{ imported_count: number }>("import_question_bank_package", {
+    payload,
+  });
 }

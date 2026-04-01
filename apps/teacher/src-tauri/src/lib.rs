@@ -80,6 +80,7 @@ pub fn run() {
             controllers::question_bank_controller::update_question_bank_item,
             controllers::question_bank_controller::delete_question_bank_item,
             controllers::question_bank_controller::export_question_bank_package,
+            controllers::question_bank_controller::import_question_bank_package,
             controllers::network_controller::get_online_students,
         ])
         .run(tauri::generate_context!())

@@ -1,4 +1,5 @@
 use anyhow::{anyhow, Context, Result};
+use calamine::{open_workbook_auto, Reader};
 use chrono::Utc;
 use sea_orm::DatabaseConnection;
 use serde::{Deserialize, Serialize};
@@ -6,13 +7,18 @@ use tauri::Manager;
 
 use crate::models::question_bank_item::Model as QuestionBankItemModel;
 use crate::repos::question_bank_repo;
-use crate::utils::asset_zip::{create_asset_zip, ZipAssetEntry};
+use crate::utils::asset_zip::{create_asset_zip, extract_asset_zip, ZipAssetEntry};
 
 #[derive(Debug, Clone)]
 pub struct ExportQuestionBankPackageResult {
     pub output_path: String,
     pub packed_image_count: usize,
     pub missing_image_count: usize,
+}
+
+#[derive(Debug, Clone)]
+pub struct ImportQuestionBankPackageResult {
+    pub imported_count: usize,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -270,6 +276,67 @@ pub fn export_question_bank_package(
     })
 }
 
+/// 清空题库表后导入资源包中的题目数据。
+///
+/// # 参数
+/// - `db`: 数据库连接。
+/// - `app_handle`: Tauri 应用句柄，用于解析应用数据目录。
+/// - `package_path`: 题库资源包绝对路径。
+///
+/// # 返回值
+/// - 返回导入条数；解压、解析、清空或写入失败时返回错误。
+pub async fn import_question_bank_package(
+    db: &DatabaseConnection,
+    app_handle: &tauri::AppHandle,
+    package_path: String,
+) -> Result<ImportQuestionBankPackageResult> {
+    let app_data_dir = app_handle
+        .path()
+        .app_data_dir()
+        .context("解析应用数据目录失败")?;
+    let temp_dir = app_data_dir
+        .join("temp")
+        .join(format!("question-bank-import-{}", uuid::Uuid::new_v4().simple()));
+    std::fs::create_dir_all(&temp_dir).context("创建资源包解压目录失败")?;
+
+    let extracted = extract_asset_zip(std::path::Path::new(package_path.trim()), &temp_dir)
+        .context("解压资源包失败")?;
+    let xlsx_path = extracted
+        .iter()
+        .find_map(|entry| {
+            let lowered = entry.archive_path.to_ascii_lowercase();
+            if lowered == "question_bank.xlsx" || lowered.ends_with(".xlsx") {
+                Some(entry.output_path.clone())
+            } else {
+                None
+            }
+        })
+        .ok_or_else(|| anyhow!("资源包中未找到 question_bank.xlsx"))?;
+
+    let asset_mapping = materialize_package_assets(&app_data_dir, &extracted)?;
+    let payloads = parse_question_bank_payloads_from_xlsx(&xlsx_path, &asset_mapping)?;
+
+    question_bank_repo::delete_all_question_bank_items(db)
+        .await
+        .context("清空题库表失败")?;
+
+    let mut imported_count = 0usize;
+    for payload in payloads {
+        validate_question_bank_payload(&payload)?;
+        let now = Utc::now().timestamp_millis();
+        let created_at = payload.created_at.unwrap_or(now);
+        let updated_at = payload.updated_at.unwrap_or(now);
+        let id = uuid::Uuid::new_v4().to_string();
+        question_bank_repo::insert_question_bank_item(db, id, &payload, created_at, updated_at)
+            .await
+            .context("写入题库题目失败")?;
+        imported_count += 1;
+    }
+
+    let _ = std::fs::remove_dir_all(&temp_dir);
+    Ok(ImportQuestionBankPackageResult { imported_count })
+}
+
 fn materialize_question_bank_item(item: QuestionBankItemModel) -> Result<QuestionBankItemView> {
     Ok(QuestionBankItemView {
         id: item.id,
@@ -400,4 +467,255 @@ fn to_package_asset_path(relative_path: &str) -> Result<String> {
     }
 
     Ok(format!("assets/options/{}", file_name))
+}
+
+fn materialize_package_assets(
+    app_data_dir: &std::path::Path,
+    extracted_entries: &[crate::utils::asset_zip::ExtractedZipEntry],
+) -> Result<std::collections::HashMap<String, String>> {
+    let mut mapping = std::collections::HashMap::new();
+    for entry in extracted_entries {
+        let normalized_archive = entry.archive_path.trim().replace('\\', "/");
+        let lowered = normalized_archive.to_ascii_lowercase();
+        let biz = if lowered.starts_with("assets/content/") {
+            Some("content")
+        } else if lowered.starts_with("assets/options/") {
+            Some("options")
+        } else {
+            None
+        };
+
+        let Some(biz_folder) = biz else {
+            continue;
+        };
+
+        if !entry.output_path.exists() {
+            continue;
+        }
+
+        let extension = entry
+            .output_path
+            .extension()
+            .and_then(|ext| ext.to_str())
+            .unwrap_or("png")
+            .to_ascii_lowercase();
+        let stem = entry
+            .output_path
+            .file_stem()
+            .and_then(|value| value.to_str())
+            .unwrap_or("asset")
+            .chars()
+            .map(|c| match c {
+                '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|' => '_',
+                _ => c,
+            })
+            .collect::<String>();
+
+        let target_dir = app_data_dir
+            .join("uploads")
+            .join("images")
+            .join("question-bank")
+            .join(biz_folder);
+        std::fs::create_dir_all(&target_dir).context("创建题库图片目录失败")?;
+        let target_file_name = format!(
+            "{}_{}.{}",
+            stem,
+            uuid::Uuid::new_v4().simple(),
+            extension
+        );
+        let target_path = target_dir.join(&target_file_name);
+        std::fs::copy(&entry.output_path, &target_path).context("复制资源包图片失败")?;
+
+        mapping.insert(
+            normalized_archive,
+            format!(
+                "uploads/images/question-bank/{}/{}",
+                biz_folder, target_file_name
+            ),
+        );
+    }
+
+    Ok(mapping)
+}
+
+fn parse_question_bank_payloads_from_xlsx(
+    xlsx_path: &std::path::Path,
+    asset_mapping: &std::collections::HashMap<String, String>,
+) -> Result<Vec<QuestionBankWritePayload>> {
+    let mut workbook = open_workbook_auto(xlsx_path)?;
+    let range = workbook
+        .worksheet_range_at(0)
+        .ok_or_else(|| anyhow!("xlsx 中不存在工作表"))??;
+
+    let mut rows = range.rows();
+    let headers = rows
+        .next()
+        .ok_or_else(|| anyhow!("xlsx 表头为空"))?
+        .iter()
+        .map(cell_to_string)
+        .collect::<Vec<String>>();
+
+    let mut payloads = Vec::new();
+    for row in rows {
+        let row_map = headers
+            .iter()
+            .enumerate()
+            .map(|(index, header)| {
+                let value = row.get(index).map(cell_to_string).unwrap_or_default();
+                (header.to_string(), value)
+            })
+            .collect::<std::collections::HashMap<String, String>>();
+
+        let r#type = pick_value(&row_map, &["题型", "type"]).unwrap_or_default();
+        let content = pick_value(&row_map, &["题目内容", "题干", "content"]).unwrap_or_default();
+        let answer = pick_value(&row_map, &["答案", "answer"]).unwrap_or_default();
+        let score = pick_value(&row_map, &["分值", "score"])
+            .and_then(|value| value.parse::<i32>().ok())
+            .unwrap_or(0);
+        let explanation = pick_value(&row_map, &["解析", "explanation"]);
+
+        if r#type.trim().is_empty() || content.trim().is_empty() || answer.trim().is_empty() {
+            continue;
+        }
+
+        let content_image_paths = parse_string_array(
+            pick_value(&row_map, &["题干图片", "content_image_paths"]).unwrap_or_default(),
+            asset_mapping,
+        )?;
+
+        let options_value = pick_value(&row_map, &["选项", "options"]).unwrap_or_default();
+        let options = parse_question_bank_options(&options_value, asset_mapping)?;
+
+        payloads.push(QuestionBankWritePayload::normalized(
+            r#type,
+            content,
+            content_image_paths,
+            options,
+            answer,
+            score,
+            explanation,
+            None,
+            None,
+        ));
+    }
+
+    Ok(payloads)
+}
+
+fn parse_question_bank_options(
+    raw: &str,
+    asset_mapping: &std::collections::HashMap<String, String>,
+) -> Result<Vec<QuestionBankOptionValue>> {
+    if raw.trim().is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let parsed: Vec<serde_json::Value> = match serde_json::from_str::<Vec<serde_json::Value>>(raw) {
+        Ok(value) => value,
+        Err(_) => raw
+            .split('|')
+            .filter_map(|item| {
+                let trimmed = item.trim();
+                if trimmed.is_empty() {
+                    None
+                } else {
+                    Some(serde_json::json!({ "key": trimmed, "text": "", "option_type": "text", "image_paths": [] }))
+                }
+            })
+            .collect::<Vec<serde_json::Value>>(),
+    };
+
+    let mut options = Vec::new();
+    for item in parsed {
+        let key = item
+            .get("key")
+            .and_then(|value| value.as_str())
+            .unwrap_or_default()
+            .to_string();
+        let text = item
+            .get("text")
+            .and_then(|value| value.as_str())
+            .unwrap_or_default()
+            .to_string();
+        let option_type = item
+            .get("option_type")
+            .and_then(|value| value.as_str())
+            .unwrap_or("text")
+            .to_string();
+
+        let raw_images = item
+            .get("image_paths")
+            .cloned()
+            .unwrap_or_else(|| serde_json::Value::Array(Vec::new()));
+        let image_paths = match raw_images {
+            serde_json::Value::Array(values) => values
+                .into_iter()
+                .filter_map(|value| value.as_str().map(|text| text.to_string()))
+                .map(|value| map_asset_path(value, asset_mapping))
+                .collect::<Vec<String>>(),
+            _ => Vec::new(),
+        };
+
+        options.push(QuestionBankOptionValue {
+            key,
+            text,
+            option_type,
+            image_paths,
+        });
+    }
+
+    Ok(options)
+}
+
+fn parse_string_array(
+    raw: String,
+    asset_mapping: &std::collections::HashMap<String, String>,
+) -> Result<Vec<String>> {
+    if raw.trim().is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let values: Vec<String> = serde_json::from_str::<Vec<String>>(&raw)
+        .unwrap_or_else(|_| {
+            raw.split(',')
+                .map(|item| item.trim().to_string())
+                .filter(|item| !item.is_empty())
+                .collect::<Vec<String>>()
+        });
+
+    Ok(values
+        .into_iter()
+        .map(|value| map_asset_path(value, asset_mapping))
+        .collect())
+}
+
+fn map_asset_path(
+    value: String,
+    asset_mapping: &std::collections::HashMap<String, String>,
+) -> String {
+    let normalized = value.trim().replace('\\', "/");
+    asset_mapping
+        .get(&normalized)
+        .cloned()
+        .unwrap_or(normalized)
+}
+
+fn pick_value(
+    row_map: &std::collections::HashMap<String, String>,
+    keys: &[&str],
+) -> Option<String> {
+    keys.iter().find_map(|key| {
+        row_map.get(*key).and_then(|value| {
+            let trimmed = value.trim();
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some(trimmed.to_string())
+            }
+        })
+    })
+}
+
+fn cell_to_string(cell: &impl std::fmt::Display) -> String {
+    cell.to_string().trim().to_string()
 }

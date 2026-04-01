@@ -154,6 +154,36 @@ pub async fn export_question_bank_package(
     }
 }
 
+/// 导入题库资源包到 `question_bank_items`，并在导入前清空原有数据。
+///
+/// # 参数
+/// - `state`: 教师端共享应用状态，提供数据库连接。
+/// - `app_handle`: Tauri 应用句柄，用于解析应用数据目录。
+/// - `payload`: 包含资源包绝对路径。
+///
+/// # 返回值
+/// - 返回导入条数；解压、解析、清空或写入失败时返回错误字符串。
+#[tauri::command]
+pub async fn import_question_bank_package(
+    state: State<'_, AppState>,
+    app_handle: tauri::AppHandle,
+    payload: question_bank_schema::ImportQuestionBankPackageInput,
+) -> Result<question_bank_schema::ImportQuestionBankPackageOutput, String> {
+    let pool = &state.db;
+    match question_bank_service::import_question_bank_package(
+        pool,
+        &app_handle,
+        payload.package_path,
+    )
+    .await
+    {
+        Ok(result) => Ok(question_bank_schema::ImportQuestionBankPackageOutput {
+            imported_count: result.imported_count,
+        }),
+        Err(err) => Err(err.to_string()),
+    }
+}
+
 fn to_question_bank_write_payload(
     r#type: String,
     content: String,
