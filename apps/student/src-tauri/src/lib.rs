@@ -7,6 +7,7 @@ pub mod network;
 pub mod schemas;
 pub mod services;
 pub mod utils;
+pub mod repos;
 
 use tauri::Manager;
 
