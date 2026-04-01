@@ -152,8 +152,9 @@ export function QuestionBankPage() {
 
   useEffect(() => {
     if (!questionModal.visible || contentImagePaths.length === 0) {
-      setContentPreviewMap({});
-      setContentPreviewLoading(false);
+      // 避免每次都设置新的空对象导致重渲染循环，只有在当前 state 不符合目标时才设置
+      setContentPreviewMap((prev) => (Object.keys(prev).length === 0 ? prev : {}));
+      setContentPreviewLoading((prev) => (prev === false ? prev : false));
       return;
     }
 
@@ -187,8 +188,9 @@ export function QuestionBankPage() {
 
   useEffect(() => {
     if (!questionModal.visible || optionImagePaths.length === 0) {
-      setOptionPreviewMap({});
-      setOptionPreviewLoading(false);
+      // 避免每次都设置新的空对象导致重渲染循环
+      setOptionPreviewMap((prev) => (Object.keys(prev).length === 0 ? prev : {}));
+      setOptionPreviewLoading((prev) => (prev === false ? prev : false));
       return;
     }
 
