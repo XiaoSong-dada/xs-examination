@@ -244,6 +244,13 @@ pub fn build_answer_sync_message(
     encode_message(&message)
 }
 
+pub fn build_p2p_progress_message(
+    payload: &crate::network::protocol::P2pDistributionProgressPayload,
+) -> Result<String> {
+    let message = build_message(MessageType::P2pDistributionProgress, now_ms(), payload);
+    encode_message(&message)
+}
+
 async fn send_full_answer_sync_for_current_session(app_handle: &tauri::AppHandle) -> Result<()> {
     let batch_id = uuid::Uuid::new_v4().to_string();
     let _ = crate::services::exam_runtime_service::ExamRuntimeService::send_current_session_answer_sync(

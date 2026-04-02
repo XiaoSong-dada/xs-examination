@@ -14,3 +14,11 @@ pub fn get_env_ip(name: &str, default_value: &str) -> String {
         .filter(|v| v.parse::<IpAddr>().is_ok())
         .unwrap_or_else(|| default_value.to_string())
 }
+
+pub fn get_env_bool(name: &str, default_value: bool) -> bool {
+    std::env::var(name)
+        .ok()
+        .map(|v| v.to_lowercase())
+        .map(|v| v == "true" || v == "1" || v == "yes" || v == "on")
+        .unwrap_or(default_value)
+}

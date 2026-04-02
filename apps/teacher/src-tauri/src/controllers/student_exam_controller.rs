@@ -137,7 +137,6 @@ pub async fn connect_student_devices_by_exam_id(
             continue;
         }
 
-        // 同一设备 IP 只下发一次，避免重复请求；student_id 以第一条分配记录为准。
         if !seen_ip.insert(ip.clone()) {
             continue;
         }
@@ -246,14 +245,6 @@ pub async fn get_student_device_connection_status_by_exam_id(
     .map_err(|err| err.to_string())
 }
 
-/// 查询指定考试的成绩汇总。
-///
-/// # 参数
-/// * `state` - 全局应用状态，提供数据库连接。
-/// * `payload` - 查询参数，包含考试 ID。
-///
-/// # 返回值
-/// 返回已落库的成绩汇总列表；查询失败时返回错误字符串。
 #[tauri::command]
 pub async fn get_student_score_summary_by_exam_id(
     state: State<'_, AppState>,
@@ -265,14 +256,6 @@ pub async fn get_student_score_summary_by_exam_id(
         .map_err(|err| err.to_string())
 }
 
-/// 对指定考试执行成绩统计并覆盖写入数据库。
-///
-/// # 参数
-/// * `state` - 全局应用状态，提供数据库连接。
-/// * `payload` - 统计参数，包含考试 ID。
-///
-/// # 返回值
-/// 返回最新成绩汇总列表；若考试状态非 `finished` 或统计失败则返回错误字符串。
 #[tauri::command]
 pub async fn calculate_student_score_summary_by_exam_id(
     state: State<'_, AppState>,
@@ -284,14 +267,6 @@ pub async fn calculate_student_score_summary_by_exam_id(
         .map_err(|err| err.to_string())
 }
 
-/// 将成绩报告文件写入本机目录并返回落盘路径。
-///
-/// # 参数
-/// * `app_handle` - Tauri 应用句柄，用于解析系统目录路径。
-/// * `payload` - 文件名与二进制内容。
-///
-/// # 返回值
-/// 返回保存后的绝对路径；写盘失败时返回错误字符串。
 #[tauri::command]
 pub async fn save_score_report_file(
     app_handle: tauri::AppHandle,
@@ -301,7 +276,6 @@ pub async fn save_score_report_file(
         return Err("导出文件内容为空，请先确认有成绩数据后再导出".to_string());
     }
 
-    // xlsx 是 zip 容器，文件头应为 PK。
     if payload.bytes[0] != 0x50 || payload.bytes[1] != 0x4B {
         return Err("导出文件格式异常，请重试导出".to_string());
     }
@@ -338,14 +312,6 @@ pub async fn save_score_report_file(
     })
 }
 
-/// 解析成绩报告导出的预期落盘路径。
-///
-/// # 参数
-/// * `app_handle` - Tauri 应用句柄，用于解析系统目录路径。
-/// * `payload` - 文件名。
-///
-/// # 返回值
-/// 返回系统下载目录下的完整文件路径；目录解析失败时返回错误字符串。
 #[tauri::command]
 pub async fn resolve_report_download_path(
     app_handle: tauri::AppHandle,
@@ -416,15 +382,6 @@ pub async fn start_exam_by_exam_id(
     Ok(result)
 }
 
-/// 结束指定考试并触发学生端最终同步。
-///
-/// # 参数
-/// * `app_handle` - Tauri 应用句柄。
-/// * `state` - 全局应用状态，提供数据库连接。
-/// * `payload` - 结束考试输入参数，包含考试 ID。
-///
-/// # 返回值
-/// 返回结束考试下发与最终同步 ACK 聚合结果；失败时返回错误字符串。
 #[tauri::command]
 pub async fn end_exam_by_exam_id(
     app_handle: tauri::AppHandle,

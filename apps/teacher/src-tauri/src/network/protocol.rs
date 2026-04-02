@@ -22,6 +22,12 @@ pub enum MessageType {
     Submit,
     StatusUpdate,
     CheatAlert,
+    P2pDistributionStart,
+    P2pDistributionProgress,
+    P2pDistributionComplete,
+    P2pDataBlock,
+    P2pBlockRequest,
+    P2pBlockResponse,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -307,5 +313,95 @@ pub struct PaperAssetSyncDonePayload {
     pub success_assets: usize,
     #[serde(rename = "failedAssetIds", default)]
     pub failed_asset_ids: Vec<String>,
+    pub timestamp: i64,
+}
+
+// P2P 数据块结构
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DataBlock {
+    #[serde(rename = "blockId")]
+    pub block_id: String,
+    #[serde(rename = "examId")]
+    pub exam_id: String,
+    pub index: u64,
+    #[serde(rename = "totalBlocks")]
+    pub total_blocks: u64,
+    pub data: String,
+    pub checksum: String,
+}
+
+// P2P 分发开始通知
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct P2pDistributionStartPayload {
+    #[serde(rename = "examId")]
+    pub exam_id: String,
+    #[serde(rename = "totalBlocks")]
+    pub total_blocks: u64,
+    #[serde(rename = "totalSize")]
+    pub total_size: u64,
+    #[serde(rename = "blockSize")]
+    pub block_size: u64,
+    #[serde(rename = "sourceDeviceId")]
+    pub source_device_id: String,
+    pub timestamp: i64,
+}
+
+// P2P 分发进度报告
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct P2pDistributionProgressPayload {
+    #[serde(rename = "examId")]
+    pub exam_id: String,
+    #[serde(rename = "deviceId")]
+    pub device_id: String,
+    #[serde(rename = "receivedBlocks")]
+    pub received_blocks: u64,
+    #[serde(rename = "totalBlocks")]
+    pub total_blocks: u64,
+    pub progress: f64,
+    pub timestamp: i64,
+}
+
+// P2P 分发完成通知
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct P2pDistributionCompletePayload {
+    #[serde(rename = "examId")]
+    pub exam_id: String,
+    #[serde(rename = "deviceId")]
+    pub device_id: String,
+    pub success: bool,
+    pub message: String,
+    #[serde(rename = "completedAt")]
+    pub completed_at: i64,
+}
+
+// P2P 块请求
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct P2pBlockRequestPayload {
+    #[serde(rename = "examId")]
+    pub exam_id: String,
+    #[serde(rename = "blockIds")]
+    pub block_ids: Vec<String>,
+    #[serde(rename = "requesterDeviceId")]
+    pub requester_device_id: String,
+    pub timestamp: i64,
+}
+
+// P2P 块响应
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct P2pBlockResponsePayload {
+    #[serde(rename = "examId")]
+    pub exam_id: String,
+    #[serde(rename = "responderDeviceId")]
+    pub responder_device_id: String,
+    pub blocks: Vec<DataBlock>,
+    pub timestamp: i64,
+}
+
+// P2P 数据块消息
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct P2pDataBlockPayload {
+    #[serde(rename = "sourceDeviceId")]
+    pub source_device_id: String,
+    pub block: DataBlock,
     pub timestamp: i64,
 }

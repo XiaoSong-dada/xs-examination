@@ -1,6 +1,6 @@
 use anyhow::{Context, Result};
 use once_cell::sync::Lazy;
-use crate::utils::env::get_env_u16;
+use crate::utils::env::{get_env_u16, get_env_bool};
 
 const DEFAULT_DB_NAME: &str = "teacher.db";
 
@@ -8,6 +8,7 @@ pub struct AppConfig {
     pub ws_server_port: u16,
     pub std_server_port: u16,
     pub std_controller_port: u16,
+    pub enable_p2p_distribution: bool,
 }
 
 /// 数据库相关配置。
@@ -54,5 +55,6 @@ pub static SETTINGS: Lazy<AppConfig> = Lazy::new(|| {
         ws_server_port: get_env_u16("WS_SERVER_PORT", 18888),
         std_server_port: get_env_u16("STD_SERVER_PORT", 28888),
         std_controller_port: get_env_u16("STD_CONTROLLER_PORT", 38888),
+        enable_p2p_distribution: get_env_bool("ENABLE_P2P_DISTRIBUTION", false),
     }
 });

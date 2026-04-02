@@ -3,6 +3,7 @@ use dashmap::DashMap;
 use sea_orm::DatabaseConnection;
 use tauri::AppHandle;
 use tokio::sync::mpsc::UnboundedSender;
+use crate::network::p2p_distributor::P2PDistributor;
 
 pub struct AppState {
     pub db: DatabaseConnection,
@@ -11,6 +12,7 @@ pub struct AppState {
     student_peer_map: DashMap<String, String>,
     final_sync_tracker: DashMap<String, bool>,
     paper_package_ack_tracker: DashMap<String, String>,
+    pub p2p_distributor: P2PDistributor,
 }
 
 impl AppState {
@@ -23,6 +25,7 @@ impl AppState {
             student_peer_map: DashMap::new(),
             final_sync_tracker: DashMap::new(),
             paper_package_ack_tracker: DashMap::new(),
+            p2p_distributor: P2PDistributor::new(),
         })
     }
 

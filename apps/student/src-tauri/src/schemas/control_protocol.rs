@@ -150,3 +150,123 @@ pub struct DistributeExamPaperAck {
     pub timestamp: i64,
     pub payload: DistributeExamPaperAckPayload,
 }
+
+// ========== P2P 相关协议定义 ==========
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct P2pRequestChunkPayload {
+    #[serde(rename = "sessionId")]
+    pub session_id: String,
+    #[serde(rename = "chunkIndex")]
+    pub chunk_index: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct P2pRequestChunkRequest {
+    pub r#type: String,
+    #[serde(rename = "requestId")]
+    pub request_id: String,
+    pub timestamp: i64,
+    pub payload: P2pRequestChunkPayload,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct P2pChunkAckPayload {
+    pub success: bool,
+    pub message: String,
+    #[serde(rename = "sessionId")]
+    pub session_id: String,
+    #[serde(rename = "chunkIndex")]
+    pub chunk_index: usize,
+    #[serde(rename = "chunkHash")]
+    pub chunk_hash: Option<String>,
+    #[serde(rename = "chunkData")]
+    pub chunk_data: Option<String>, // Base64 编码的块数据
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct P2pChunkAck {
+    pub r#type: String,
+    #[serde(rename = "requestId")]
+    pub request_id: String,
+    pub timestamp: i64,
+    pub payload: P2pChunkAckPayload,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct P2pStatusQueryPayload {
+    #[serde(rename = "sessionId")]
+    pub session_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct P2pStatusQueryRequest {
+    pub r#type: String,
+    #[serde(rename = "requestId")]
+    pub request_id: String,
+    pub timestamp: i64,
+    pub payload: P2pStatusQueryPayload,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct P2pStatusAckPayload {
+    pub success: bool,
+    pub message: String,
+    #[serde(rename = "sessionId")]
+    pub session_id: String,
+    #[serde(rename = "hasPaper")]
+    pub has_paper: bool,
+    #[serde(rename = "totalChunks")]
+    pub total_chunks: Option<usize>,
+    #[serde(rename = "availableChunks")]
+    pub available_chunks: Option<Vec<usize>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct P2pStatusAck {
+    pub r#type: String,
+    #[serde(rename = "requestId")]
+    pub request_id: String,
+    pub timestamp: i64,
+    pub payload: P2pStatusAckPayload,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct P2pStoreChunkPayload {
+    #[serde(rename = "sessionId")]
+    pub session_id: String,
+    #[serde(rename = "chunkIndex")]
+    pub chunk_index: usize,
+    #[serde(rename = "chunkHash")]
+    pub chunk_hash: String,
+    #[serde(rename = "chunkData")]
+    pub chunk_data: String, // Base64 编码的块数据
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct P2pStoreChunkRequest {
+    pub r#type: String,
+    #[serde(rename = "requestId")]
+    pub request_id: String,
+    pub timestamp: i64,
+    pub payload: P2pStoreChunkPayload,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct P2pStoreChunkAckPayload {
+    pub success: bool,
+    pub message: String,
+    #[serde(rename = "sessionId")]
+    pub session_id: String,
+    #[serde(rename = "chunkIndex")]
+    pub chunk_index: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct P2pStoreChunkAck {
+    pub r#type: String,
+    #[serde(rename = "requestId")]
+    pub request_id: String,
+    pub timestamp: i64,
+    pub payload: P2pStoreChunkAckPayload,
+}

@@ -42,3 +42,31 @@ pub async fn write_json_response<T: Serialize>(stream: &mut TcpStream, response:
     stream.write_all(&output).await?;
     Ok(())
 }
+
+pub async fn write_json_request<T: Serialize>(stream: &mut TcpStream, request: &T) -> Result<()> {
+    let output = serde_json::to_vec(request)?;
+    stream.write_all(&output).await?;
+    Ok(())
+}
+
+pub async fn read_json_response<T: serde::de::DeserializeOwned>(stream: &mut TcpStream) -> Result<T> {
+    let mut data = Vec::with_capacity(16 * 1024);
+    let mut chunk = [0_u8; 4096];
+
+    loop {
+        let size = stream.read(&mut chunk).await?;
+        if size == 0 {
+            break;
+        }
+
+        data.extend_from_slice(&chunk[..size]);
+
+        match serde_json::from_slice::<T>(&data) {
+            Ok(value) => return Ok(value),
+            Err(err) if err.is_eof() => continue,
+            Err(err) => return Err(err.into()),
+        }
+    }
+
+    Ok(serde_json::from_slice::<T>(&data)?)
+}
