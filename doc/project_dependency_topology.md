@@ -520,7 +520,12 @@ graph TD
 | controllers | `controllers/` | 新增的控制层入口，当前已承载设备运行态命令 |
 | network | `network/` | 发现、控制服务、WS 客户端、本机 IP 获取工具 |
 | network-transport | `network/transport/` | WS connect / writer loop、TCP bind/read/write 的薄封装层 |
+<<<<<<< fix-规范student代码分层
+| services | `services/` | 业务服务，现包含教师端地址配置、设备 IP 运行态查询、启动恢复、统一自动重连、连接阶段会话预写入、发卷落库、按题答案本地读取、ACK 回写、pending/failed outbox flush 与重连后一轮 full 同步调度 |
+| repos | `repos/` | 数据访问层，负责数据库操作，包括考试会话、考试快照、本地答案、同步队列和教师端地址的 CRUD 操作 |
+=======
 | services | `services/` | 业务服务，现包含教师端地址配置、设备 IP 运行态查询、启动恢复、统一自动重连、连接阶段会话预写入、试卷包接收与开考物化、按题答案本地读取、ACK 回写、pending/failed outbox flush 与重连后一轮 full 同步调度 |
+>>>>>>> v0.1.1-dev
 | schemas | `schemas/` | 控制协议与网络协议结构 |
 | state | `state.rs` | 应用共享状态 |
 | db | `db/` | 本地数据库与实体 |
@@ -537,6 +542,7 @@ graph TD
     SNet[network]
     STransport[network/transport]
     SSvc[services]
+    SRepo[repos]
     SSchema[schemas]
     SState[state]
     SDb[db]
@@ -559,10 +565,11 @@ graph TD
     SNet --> SSvc
     SNet --> SUtils
     SNet --> SState
-    SSvc --> SDb
-    SSvc --> SAnswer
+    SSvc --> SRepo
     SSvc --> SState
     SSvc --> SNet
+    SRepo --> SDb
+    SRepo --> SAnswer
     SState --> SDb
     SState --> SConfig
 ```
@@ -581,10 +588,11 @@ graph TD
 | controllers | entry、student-frontend invoke | services、schemas |
 | network | entry、commands、services | transport、schemas、services、utils、state |
 | network-transport | network | tokio-tungstenite、TcpListener/TcpStream 细节 |
-| services | commands、controllers、network | db、state、network |
+| services | commands、controllers、network | repos、state、network |
+| repos | services | db、state |
 | schemas | commands、controllers、network | 0 |
 | state | entry、commands、network、services | db、config |
-| db | state、services | 0 |
+| db | state、repos | 0 |
 | config | state | 0 |
 | utils | network | 0 |
 
@@ -595,7 +603,8 @@ graph TD
 - 若任务是“学生端接收教师下发地址或控制消息”，先看 `network/control_server.rs`。
 - 若任务是“设备 IP 获取异常 / discovery ACK IP 不准确 / Header 设备 IP 未知”，先看 `controllers/device_controller.rs`、`services/device_service.rs`、`network/device_network.rs`、`network/discovery_listener.rs`。
 - 若任务是“学生端 WS connect / writer loop 或 TCP bind/read/write 细节”，先看 `network/transport/`。
-- 若任务是“本地缓存与地址持久化”，先看 `services/`、`db/`。
+- 若任务是“本地缓存与地址持久化”，先看 `services/`、`repos/`、`db/`。
+- 若任务是“数据访问层操作”，先看 `repos/` 目录下的相关文件，如 `exam_session_repo.rs`、`local_answer_repo.rs` 等。
 - 若任务是“IPC 命令与前端桥接”，先看 `commands.rs` 与 `controllers/`。
 - 若任务是“学生端为何收不到试卷”，先看 `network/ws_client.rs`、`services/exam_runtime_service.rs`、`commands.rs`，确认 `PaperPackageManifest/PaperPackageChunk` 是否收到、`exam_snapshots.package_status` 是否进入 `received`、`get_current_exam_bundle` 是否能读到数据。
 - 若任务是“学生端连接设备时是否已经建立本地会话”，先看 `network/control_server.rs` 中 `APPLY_TEACHER_ENDPOINTS` 分支和 `services/exam_runtime_service.rs::upsert_connected_session`。
