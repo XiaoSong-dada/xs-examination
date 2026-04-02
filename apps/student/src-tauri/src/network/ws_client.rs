@@ -1,6 +1,7 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::Result;
+use base64::Engine;
 use futures_util::StreamExt;
 use serde_json::json;
 use tauri::{Emitter, Manager};
@@ -10,7 +11,8 @@ use tokio_tungstenite::tungstenite::Message;
 use crate::network::protocol::{
     AnswerItem, AnswerSyncAckPayload, ExamEndPayload, ExamStartPayload,
     FinalSyncRequestPayload, HeartbeatPayload, MessageType, WsMessage, build_message,
-    decode_value_message, encode_message,
+    decode_value_message, encode_message, PaperPackageAckPayload,
+    PaperPackageChunkPayload, PaperPackageManifestPayload,
 };
 use crate::network::transport::ws_transport::{connect_ws, new_text_channel, run_text_writer_loop};
 use crate::schemas::teacher_endpoint_schema::WsConnectionEvent;
@@ -263,6 +265,118 @@ async fn handle_server_message(
     let envelope: WsMessage<serde_json::Value> = decode_value_message(text)?;
 
     match envelope.r#type {
+        MessageType::PaperPackageManifest => {
+            let payload: PaperPackageManifestPayload = serde_json::from_value(envelope.payload)?;
+            if payload.student_id != local_student_id {
+                return Ok(());
+            }
+
+            let app_data_dir = app_handle.path().app_data_dir()?;
+            let package_dir = app_data_dir
+                .join("paper_packages")
+                .join(&payload.session_id);
+            std::fs::create_dir_all(&package_dir)?;
+            let package_path = package_dir.join(&payload.file_name);
+            if package_path.exists() {
+                let _ = std::fs::remove_file(&package_path);
+            }
+
+            crate::services::exam_runtime_service::ExamRuntimeService::prepare_exam_package_receive(
+                &app_handle,
+                &payload,
+                &package_path.to_string_lossy(),
+            )
+            .await?;
+
+            app_handle.state::<crate::state::AppState>().set_receiving_package(
+                payload.batch_id.clone(),
+                crate::state::ReceivingPackageState {
+                    exam_id: payload.exam_id,
+                    student_id: payload.student_id,
+                    session_id: payload.session_id,
+                    batch_id: payload.batch_id,
+                    file_path: package_path.to_string_lossy().to_string(),
+                    sha256: payload.sha256,
+                    total_bytes: payload.total_bytes,
+                    total_chunks: payload.total_chunks,
+                    received_chunks: 0,
+                },
+            );
+        }
+        MessageType::PaperPackageChunk => {
+            let payload: PaperPackageChunkPayload = serde_json::from_value(envelope.payload)?;
+            if payload.student_id != local_student_id {
+                return Ok(());
+            }
+
+            let state = app_handle.state::<crate::state::AppState>();
+            let Some(mut receiving) = state.get_receiving_package(&payload.batch_id) else {
+                return Ok(());
+            };
+
+            let bytes = base64::engine::general_purpose::STANDARD
+                .decode(payload.content_base64.as_bytes())?;
+            if let Some(parent) = std::path::Path::new(&receiving.file_path).parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+
+            let mut file = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(&receiving.file_path)?;
+            use std::io::Write;
+            file.write_all(&bytes)?;
+
+            receiving.received_chunks = receiving.received_chunks.saturating_add(1);
+            state.update_receiving_package(&payload.batch_id, |current| {
+                current.received_chunks = receiving.received_chunks;
+            });
+
+            if payload.is_last || receiving.received_chunks >= receiving.total_chunks {
+                let package_bytes = std::fs::read(&receiving.file_path)?;
+                let mut hasher = sha2::Sha256::new();
+                use sha2::Digest;
+                hasher.update(&package_bytes);
+                let actual_sha = format!("{:x}", hasher.finalize());
+                let is_ok = actual_sha == receiving.sha256;
+
+                if is_ok {
+                    crate::services::exam_runtime_service::ExamRuntimeService::mark_exam_package_received(
+                        &app_handle,
+                        &receiving.session_id,
+                        &receiving.batch_id,
+                        &receiving.file_path,
+                        &receiving.sha256,
+                    )
+                    .await?;
+                }
+
+                let ack_payload = PaperPackageAckPayload {
+                    exam_id: receiving.exam_id.clone(),
+                    student_id: receiving.student_id.clone(),
+                    session_id: receiving.session_id.clone(),
+                    batch_id: receiving.batch_id.clone(),
+                    success: is_ok,
+                    message: if is_ok {
+                        "试卷包接收成功，等待开考解压".to_string()
+                    } else {
+                        "试卷包校验失败".to_string()
+                    },
+                    received_chunks: receiving.received_chunks,
+                    total_chunks: receiving.total_chunks,
+                    timestamp: now_ms(),
+                };
+
+                let ack = build_message(MessageType::PaperPackageAck, now_ms(), ack_payload);
+                if let Ok(text) = encode_message(&ack) {
+                    if let Some(sender) = app_handle.state::<crate::state::AppState>().ws_sender() {
+                        let _ = sender.send(text);
+                    }
+                }
+
+                state.remove_receiving_package(&payload.batch_id);
+            }
+        }
         MessageType::ExamStart => {
             let payload: ExamStartPayload = serde_json::from_value(envelope.payload)?;
             if payload.student_id != local_student_id {

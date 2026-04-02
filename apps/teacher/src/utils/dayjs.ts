@@ -56,4 +56,16 @@ export const fromTimestamp = (ts?: number | null) => {
  */
 export const parse = (str: string, fmt = 'YYYY-MM-DD HH:mm:ss') => dayjs(str, fmt);
 
+/**
+ * 将 Unix 毫秒时间戳格式化为显示字符串，空或非法返回 "-"
+ *
+ * @param ts - 毫秒时间戳
+ * @returns 格式化后的字符串，格式 `YYYY-MM-DD HH:mm:ss`
+ */
+export const formatTimestamp = (ts?: number | null) => {
+  if (ts === undefined || ts === null) return '-';
+  if (!Number.isFinite(ts)) return '-';
+  return dayjs(ts).format('YYYY-MM-DD HH:mm:ss');
+};
+
 export default dayjs;

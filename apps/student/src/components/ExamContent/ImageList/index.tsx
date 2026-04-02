@@ -1,7 +1,14 @@
+import { Image } from "antd";
+
 type ImageListProps = {
   images: string[];
 };
 
+/**
+ * 渲染题干图片列表，支持点击预览、缩放与旋转。
+ * @param props 图片列表参数。
+ * @returns 返回题干图片网格或空状态提示。
+ */
 export default function ImageList({ images }: ImageListProps) {
   if (images.length === 0) {
     return (
@@ -18,10 +25,12 @@ export default function ImageList({ images }: ImageListProps) {
           key={`${image}-${index}`}
           className="overflow-hidden rounded-md border border-slate-200 bg-white"
         >
-          <img
+          <Image
             src={image}
             alt={`题目图片 ${index + 1}`}
-            className="h-40 w-full object-cover"
+            width="100%"
+            height={160}
+            style={{ objectFit: "cover" }}
           />
         </li>
       ))}

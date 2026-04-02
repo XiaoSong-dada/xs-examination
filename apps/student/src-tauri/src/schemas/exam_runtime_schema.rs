@@ -29,6 +29,13 @@ pub struct ExamSnapshotDto {
     pub questions_payload: String,
     pub downloaded_at: i64,
     pub expires_at: Option<i64>,
+    pub package_path: Option<String>,
+    pub package_status: Option<String>,
+    pub package_batch_id: Option<String>,
+    pub package_sha256: Option<String>,
+    pub package_received_at: Option<i64>,
+    pub assets_sync_status: Option<String>,
+    pub assets_synced_at: Option<i64>,
     pub updated_at: i64,
 }
 

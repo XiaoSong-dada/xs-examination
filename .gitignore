@@ -23,6 +23,7 @@ dist-ssr
 *.sln
 *.sw?
 .vscode
+.trae
 
 # env files containing secrets should not be committed
 apps/teacher/.env.*

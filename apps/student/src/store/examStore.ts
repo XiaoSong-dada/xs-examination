@@ -3,18 +3,61 @@ import type { ExamStore, RuntimeQuestion } from "@/types/main";
 import type { ExamQuestionOption } from "@/types/exam";
 import { getCurrentExamBundle } from "@/services/examRuntimeService";
 
+function normalizeImagePath(rawPath: string): string {
+    const normalized = String(rawPath ?? "").trim().replace(/\\/g, "/");
+    if (!normalized) {
+        return "";
+    }
+    return normalized;
+}
+
 function parseOptions(raw?: unknown): ExamQuestionOption[] {
     if (raw == null)return [];
-    if (Array.isArray(raw)) return raw as ExamQuestionOption[];
+    if (Array.isArray(raw)) {
+        return raw.map((item, index) => {
+            const option = item as ExamQuestionOption & {
+                option_type?: "text" | "text_with_image";
+                image_paths?: string[];
+            };
+            return {
+                key: String(option.key ?? `${index + 1}`),
+                text: String(option.text ?? ""),
+                optionType: option.optionType ?? option.option_type ?? "text",
+                imagePaths: Array.isArray(option.imagePaths)
+                    ? option.imagePaths.map((path) => normalizeImagePath(String(path))).filter(Boolean)
+                    : Array.isArray(option.image_paths)
+                    ? option.image_paths.map((path) => normalizeImagePath(String(path))).filter(Boolean)
+                    : [],
+            };
+        });
+    }
     try {
         const parsed = JSON.parse(String(raw)) as ExamQuestionOption[];
-        if (Array.isArray(parsed))return parsed;
+        if (Array.isArray(parsed)) {
+            return parsed.map((item, index) => ({
+                key: String(item.key ?? `${index + 1}`),
+                text: String(item.text ?? ""),
+                optionType:
+                    (item as { optionType?: "text" | "text_with_image" }).optionType ??
+                    (item as { option_type?: "text" | "text_with_image" }).option_type ??
+                    "text",
+                imagePaths: Array.isArray(item.imagePaths)
+                    ? item.imagePaths.map((path) => normalizeImagePath(String(path))).filter(Boolean)
+                    : Array.isArray((item as { image_paths?: string[] }).image_paths)
+                    ? ((item as { image_paths?: string[] }).image_paths ?? [])
+                        .map((path) => normalizeImagePath(String(path)))
+                        .filter(Boolean)
+                    : [],
+            }));
+        }
     } catch (_err) {
         console.error("Failed to parse options:", _err);
     }
 
     const fallback = String(raw).trim();
-    return fallback ? [{ key: "1", text: fallback }] : [];
+    return fallback
+        ? [{ key: "1", text: fallback, optionType: "text", imagePaths: [] }]
+        : [];
 }
 
 function parseQuestions(payload?: string): RuntimeQuestion[] {
@@ -36,7 +79,11 @@ function parseQuestions(payload?: string): RuntimeQuestion[] {
             options: parseOptions(item.options),
             score: Number(item.score ?? 0),
             explanation: typeof item.explanation === "string" ? item.explanation : undefined,
-            images: [],
+            images: Array.isArray(item.contentImagePaths)
+                ? item.contentImagePaths
+                    .map((path) => normalizeImagePath(String(path)))
+                    .filter(Boolean)
+                : [],
         }));
     } catch (_err) {
         return [];

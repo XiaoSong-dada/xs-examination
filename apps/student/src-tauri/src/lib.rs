@@ -7,6 +7,7 @@ pub mod network;
 pub mod schemas;
 pub mod services;
 pub mod utils;
+pub mod repos;
 
 use tauri::Manager;
 
@@ -52,6 +53,7 @@ pub fn run() {
             commands::get_current_exam_bundle,
             commands::get_current_session_answers,
             controllers::device_controller::get_device_runtime_status,
+            controllers::file_asset_controller::resolve_image_asset_preview,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

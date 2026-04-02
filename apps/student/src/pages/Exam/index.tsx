@@ -1,9 +1,10 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Button } from "antd";
 
 import AnswerCard from "@/components/ExamContent/AnswerCard";
 import AnswerList from "../../components/ExamContent/AnswerList";
 import ImageList from "../../components/ExamContent/ImageList";
+import { useFileHooks } from "@/hooks/useFileHooks";
 import { useExamStore } from "@/store/examStore";
 import { getCurrentSessionAnswers, sendAnswerSync } from "@/services/examRuntimeService";
 
@@ -15,11 +16,13 @@ import { getCurrentSessionAnswers, sendAnswerSync } from "@/services/examRuntime
 export default function ExamPage() {
   const questions = useExamStore((s) => s.questions);
   const currentSession = useExamStore((s) => s.currentSession);
+  const { resolveImagePreviews } = useFileHooks();
   const [currentIndex, setCurrentIndex] = useState(0);
   const [selectedAnswers, setSelectedAnswers] = useState<Record<string, number>>(
     {},
   );
   const [answerCardCollapsed, setAnswerCardCollapsed] = useState(false);
+  const [imagePreviewMap, setImagePreviewMap] = useState<Record<string, string>>({});
 
   useEffect(() => {
     if (!currentSession || questions.length === 0) {
@@ -64,6 +67,36 @@ export default function ExamPage() {
     });
   }, [questions]);
 
+  useEffect(() => {
+    const imagePaths = questions.flatMap((question) => [
+      ...(question.images ?? []),
+      ...question.options.flatMap((option) => option.imagePaths ?? []),
+    ]);
+
+    if (imagePaths.length === 0) {
+      setImagePreviewMap({});
+      return;
+    }
+
+    let cancelled = false;
+    void (async () => {
+      try {
+        const previews = await resolveImagePreviews(imagePaths);
+        if (!cancelled) {
+          setImagePreviewMap(previews);
+        }
+      } catch (_error) {
+        if (!cancelled) {
+          setImagePreviewMap({});
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [questions, resolveImagePreviews]);
+
   if (questions.length === 0) {
     return (
       <main className="h-full border border-slate-200 bg-white p-6 shadow-sm flex items-center justify-center">
@@ -72,7 +105,24 @@ export default function ExamPage() {
     );
   }
 
-  const currentQuestion = questions[currentIndex];
+  const displayQuestions = useMemo(
+    () =>
+      questions.map((question) => ({
+        ...question,
+        images: (question.images ?? []).map(
+          (path) => imagePreviewMap[path] ?? path,
+        ),
+        options: question.options.map((option) => ({
+          ...option,
+          imagePaths: (option.imagePaths ?? []).map(
+            (path) => imagePreviewMap[path] ?? path,
+          ),
+        })),
+      })),
+    [questions, imagePreviewMap],
+  );
+
+  const currentQuestion = displayQuestions[currentIndex];
   const answeredQuestionIds = Object.keys(selectedAnswers);
 
   const handleSelectAnswer = (optionIndex: number) => {

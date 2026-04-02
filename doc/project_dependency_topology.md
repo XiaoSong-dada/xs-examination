@@ -119,6 +119,7 @@ graph TD
 - DeviceAssign
 - ExamManage
 - Students
+- QuestionBank
 - QuestionImport
 - StudentImport
 - Monitor
@@ -180,9 +181,11 @@ graph TD
 - `pages/Monitor` 现在不再只按 `ip_addr` 推导在线状态，而是通过 `hooks/useMonitor.ts` 复用同一套状态查询链路，确保与分配页口径一致。
 - `pages/Monitor` 与 `pages/Report` 现在都不再使用硬编码 0 展示答题进度，而是分别通过 `hooks/useMonitor.ts`、`hooks/useReport.ts` 调用 `services/studentService.ts`，读取教师端 `get_student_device_connection_status_by_exam_id` 返回的真实 `progress_percent`。
 - `pages/Report` 当前还承载“统计成绩 -> 导出成绩”的新闭环：`hooks/useReport.ts` 会同时读取 `get_student_score_summary_by_exam_id`，在点击“统计成绩”时调用 `calculate_student_score_summary_by_exam_id` 重算并覆盖写入 `score_summary`，在点击“导出成绩”时通过前端 `XLSX.writeFile` 触发本地下载，并调用 `resolve_report_download_path` 给出预期下载位置。
-- `pages/ExamManage` 现在不仅负责考试状态展示，还通过 `hooks/useExamManage.ts` 调用 `services/studentService.ts` 触发“分发试卷”“开始考试”“结束考试”三条链路；其中“结束考试”链路会继续下沉到教师端 WebSocket 服务，向在线学生发送 final 同步请求与 `EXAM_END`，并在 final ACK 收敛后把教师端考试状态更新为 `finished`。
+- `pages/QuestionBank` 现在除了题目 CRUD，还承载完整的资源包进出口：一方面可以“勾选题目 -> 前端生成 `question_bank.xlsx` -> 调用后端打包 zip”，另一方面也可以在用户确认后调用后端“先清空 `question_bank_items` 再导入 zip 资源包”。对应编排已下沉到 `services/questionBankEditorService.ts` 与 `services/questionService.ts`。
+- `pages/QuestionImport` 目前仍保留资源包导入支线，但它的真实出口是按 `exam_id` 覆盖写入 `questions`；2026-04-01 起这条支线已补齐图片资源处理，导入时会把 zip 中的 `assets/content`、`assets/options` 复制到 `uploads/images/questions/{exam_id}/...`，并把 `content_image_paths` 与选项 `image_paths` 一并写回 `questions`。
+- `pages/ExamManage` 现在不仅负责考试状态展示，还通过 `hooks/useExamManage.ts` 调用 `services/studentService.ts` 触发“分发试卷”“开始考试”“结束考试”三条链路；其中“分发试卷”已重构为“教师端构建 zip 试卷包并经 WebSocket 下发 manifest/chunk，等待学生端 `PaperPackageAck` 收敛”的链路，“开始考试”则更新为“学生端收到 `EXAM_START` 后先物化本地试卷包，再进入 `active`”的链路；“结束考试”链路会继续下沉到教师端 WebSocket 服务，向在线学生发送 final 同步请求与 `EXAM_END`，并在 final ACK 收敛后把教师端考试状态更新为 `finished`。
 - `pages/ExamManage` 的“设备状态”现已不再基于 `ip_addr` 做二态推断，而是复用 `get_student_device_connection_status_by_exam_id` 返回的四态结果，并按 5 秒轮询刷新，和 `DeviceAssign`、`Monitor` 保持一致口径。
-- 这意味着教师端前端里与“实时连接状态”最相关的页面已从单一的 `Monitor` 扩展为 `DeviceAssign + Monitor + ExamManage` 共用一套 `services -> teacher-rust` 调用路径；而“答题进度”这条链路也已收敛为 `Monitor + Report -> services/studentService.ts -> teacher-rust` 的统一查询口径，“成绩统计与导出”则形成了 `Report -> useReport -> studentService.ts -> teacher-rust` 的独立闭环。
+- 这意味着教师端前端里除了“实时连接状态”与“成绩统计导出”外，又新增了一条独立题库工具链：`QuestionBank -> questionBankEditorService/questionService -> question_bank_controller/question_bank_service -> asset_zip` 同时负责资源包导出与“确认后清空并回写 `question_bank_items`”；而 `QuestionImport -> useQuestion/questionService -> question_controller/question_service` 仍保留按考试覆盖导入 `questions` 的并行支线。“答题进度”这条链路仍收敛为 `Monitor + Report -> services/studentService.ts -> teacher-rust` 的统一查询口径。
 
 ### 4.4 扇入 / 扇出
 
@@ -202,6 +205,7 @@ graph TD
 
 - `hooks` 对 `services` 的扇出现在不只覆盖考试管理、分配与监考，还额外包含 Report 页的三类调用：进度查询、成绩统计、导出位置解析。
 - `services/studentService.ts` 对教师端 Rust 的扇出也随之扩大到五条报告相关命令：`get_student_device_connection_status_by_exam_id`、`get_student_score_summary_by_exam_id`、`calculate_student_score_summary_by_exam_id`、`resolve_report_download_path`，以及导出完成后配套的 `update_exam` 状态归档链路。
+- `services/questionService.ts` 当前也不再只承载按考试查询题目与批量导入，它还扩展了三条资源包调用路径：`export_question_bank_package`、`import_question_bank_package`、`import_question_package_by_exam_id`；其中前两条对接 `question_bank_controller`，后一条仍对接 `question_controller`，并已升级为“按考试导入 xlsx + 图片资源包”的完整链路。
 
 ### 4.5 快速定位
 
@@ -215,9 +219,12 @@ graph TD
 - 若任务是“分配页连接考生设备”，优先看 `pages/DeviceAssign`、`hooks/useDeviceAssign.ts`、`services/studentService.ts`。
 - 若任务是“连接后学生端为什么没有显示考试标题或学生名称”，除了分配页链路外，还要看 `apps/student/src/store/examStore.ts`、`apps/student/src/layout/AppHeader.tsx`、`apps/student/src-tauri/src/services/exam_runtime_service.rs`。
 - 若任务是“分配页或监考页连接状态不一致”，优先看 `hooks/useDeviceAssign.ts`、`hooks/useMonitor.ts`、`types/main.ts`。
-- 若任务是“考试管理页分发试卷或开始考试”，优先看 `pages/ExamManage`、`hooks/useExamManage.ts`、`services/studentService.ts`。
+- 若任务是“考试管理页分发试卷或开始考试”，优先看 `pages/ExamManage`、`hooks/useExamManage.ts`、`services/studentService.ts`、教师端 `services/student_exam_service.rs`、教师端 `network/ws_server.rs` 与学生端 `network/ws_client.rs`。
 - 若任务是“考试管理页结束考试 / final 同步未收敛 / 结束后仍收答案”，优先看 `pages/ExamManage`、`hooks/useExamManage.ts`、`services/studentService.ts`、教师端 `controllers/student_exam_controller.rs`、`services/student_exam_service.rs`、`network/ws_server.rs`。
 - 若任务是“考试管理页设备状态不正确或与分配页监考页不一致”，优先看 `hooks/useExamManage.ts`、`hooks/useDeviceAssign.ts`、`services/studentService.ts`、`types/main.ts`。
+- 若任务是“题目列表为什么没有导出 zip / 导出包里缺图 / 保存路径在哪里”，优先看 `pages/QuestionBank`、`services/questionBankEditorService.ts`、`services/questionService.ts`、教师端 `controllers/question_bank_controller.rs`、`services/question_bank_service.rs` 与 `utils/asset_zip.rs`。
+- 若任务是“题目列表导入资源包为什么没有弹确认 / 为什么导入后列表被清空 / 为什么没有写进 `question_bank_items`”，优先看 `pages/QuestionBank`、`services/questionService.ts`、教师端 `controllers/question_bank_controller.rs`、`services/question_bank_service.rs` 与 `repos/question_bank_repo.rs`。
+- 若任务是“题库导入页为什么不能识别资源包 / zip 导入后考试题目为空 / 图片路径没有映射到考试目录”，优先看 `pages/QuestionImport`、`hooks/useQuestion.ts`、`services/questionService.ts`、教师端 `controllers/question_controller.rs` 与 `services/question_service.rs`。
 - 若任务是“成绩报告页为什么分值仍为 0 / 统计成绩不生效”，优先看 `pages/Report`、`hooks/useReport.ts`、`services/studentService.ts`、教师端 `controllers/student_exam_controller.rs`、`services/student_exam_service.rs`、`repos/student_exam_repo.rs`。
 - 若任务是“成绩报告导出到了哪里 / 为什么下载后文件异常”，优先看 `hooks/useReport.ts` 中的 `XLSX.writeFile` 与 `resolve_report_download_path`，再看教师端 `controllers/student_exam_controller.rs` 的下载目录解析逻辑。
 
@@ -326,6 +333,7 @@ graph TD
 - `student_controller`
 - `student_exam_controller`
 - `question_controller`
+- `question_bank_controller`
 - `network_controller`
 
 其中 `student_exam_controller` 当前除了原有“按考试查询学生 / 分配设备”命令外，还新增了两条直接服务于分配页和监考页的命令：
@@ -347,6 +355,11 @@ graph TD
 - `calculate_student_score_summary_by_exam_id`
 - `resolve_report_download_path`
 
+同时，题目列表与题库导入这条工具链现在也已经拆成两个控制器入口：
+
+- `question_bank_controller` 负责全局题库 CRUD 与 `export_question_bank_package`
+- `question_controller` 负责按考试读取题目、纯 xlsx 批量导入，以及 `import_question_package_by_exam_id`
+
 这意味着当前教师端 Rust 的主要扇入集中在 `controllers/`，主要扇出集中在 `services/`、`network/`、`state/`。
 
 补充说明：
@@ -362,6 +375,7 @@ graph TD
 
 - `controllers` 对 `services` 的扇出已经从“学生、设备、考试管理”扩大到“成绩报告统计与导出定位”，其中 Report 相关命令全部收敛在 `student_exam_controller.rs`。
 - `services/student_exam_service.rs` 对 `repos/student_exam_repo.rs` 的扇出也新增了成绩查询与重算覆盖逻辑，因此 `student_exam_repo.rs` 现在既服务于进度聚合，也服务于 `score_summary` 的落库与读取。
+- 与此同时，资源包导出与导入能力也已经收敛到两条明确后端路径：`question_bank_controller -> question_bank_service -> utils/asset_zip` 负责导出 zip；`question_controller -> question_service -> utils/asset_zip + question_repo` 负责解压并覆盖写入考试题目。
 
 ### 5.6 快速定位
 
@@ -378,7 +392,7 @@ graph TD
 - 若任务是“WebSocket 握手、写循环、TCP request-reply 超时模板”，先看 `network/transport/ws_transport.rs` 与 `network/transport/tcp_request_reply.rs`。
 - 若任务是“真实连接状态四态聚合”，先看 `services/student_exam_service.rs` 与 `state.rs`。
 - 若任务是“为什么终端有心跳但 UI 还是未连接”，先核对下发时 `payload.student_id` 是否使用了真实学生 `student_id`，而不是设备 `device_id`。
-- 若任务是“发卷 0/x / 试卷分发失败”，先看 `controllers/student_exam_controller.rs`、`services/student_exam_service.rs`、`network/student_control_client.rs`，重点核对目标 `ip_addr`、控制端口和学生端 ACK。
+- 若任务是“发卷 0/x / 试卷分发失败”，先看 `controllers/student_exam_controller.rs`、`services/student_exam_service.rs`、`network/ws_server.rs` 与学生端 `network/ws_client.rs`，重点核对 manifest/chunk 发送、`batch_id`、学生端 `PaperPackageAck` 与 `exam_snapshots.package_status`。
 - 若任务是“发卷时为什么没有覆盖本地考试基础信息”，先看学生端 `services/exam_runtime_service.rs` 中按 `exam_id` 的保护分支，以及 `exam_snapshots` 的更新绑定逻辑。
 - 若任务是“监考页 / 报告页答题进度始终为 0”，先看 `hooks/useMonitor.ts`、`hooks/useReport.ts`、`services/student_exam_service.rs`、`repos/student_exam_repo.rs` 与 `network/ws_server.rs`。
 - 若任务是“结束考试后为什么仍能收到答案 / final ACK 为什么没收敛”，先看 `controllers/student_exam_controller.rs`、`services/student_exam_service.rs`、`network/ws_server.rs`，重点核对 online 目标筛选、`batch_id` 跟踪与 `finished` 门禁。
@@ -386,6 +400,8 @@ graph TD
 - 若任务是“为什么 ACK 后仍有部分题目停留在 failed / sent”，先看教师端 `network/ws_server.rs::persist_answer_sync/send_answer_sync_ack` 的分题结果，以及学生端 `network/ws_client.rs`、`services/exam_runtime_service.rs` 的 `mark_answers_synced/mark_answers_failed/flush_pending_answer_sync`。
 - 若任务是“成绩报告统计后为什么没有写入总分 / 为什么只有进度没有成绩”，先看 `controllers/student_exam_controller.rs`、`services/student_exam_service.rs`、`repos/student_exam_repo.rs`，重点核对 `exams.status == finished` 门禁、`score_summary` 清空重写与 `questions.answer/score` 聚合逻辑。
 - 若任务是“前端提示导出成功但用户找不到文件”，先看 `controllers/student_exam_controller.rs::resolve_report_download_path` 与前端 `hooks/useReport.ts` 中 `XLSX.writeFile` 的实际触发时机。
+- 若任务是“题目资源包为什么导出成功但 zip 中缺少图片”，先看 `controllers/question_bank_controller.rs`、`services/question_bank_service.rs` 与 `utils/asset_zip.rs`，重点核对相对路径是否仍指向 `uploads/images/question-bank/**`。
+- 若任务是“为什么资源包导入成功但考试题目仍为空或未覆盖”，先看 `controllers/question_controller.rs`、`services/question_service.rs` 与 `repos/question_repo.rs`，重点核对 `question_bank.xlsx` 表头、解压结果与 `replace_questions_by_exam_id` 是否实际执行。
 
 ---
 
@@ -504,7 +520,12 @@ graph TD
 | controllers | `controllers/` | 新增的控制层入口，当前已承载设备运行态命令 |
 | network | `network/` | 发现、控制服务、WS 客户端、本机 IP 获取工具 |
 | network-transport | `network/transport/` | WS connect / writer loop、TCP bind/read/write 的薄封装层 |
+<<<<<<< fix-规范student代码分层
 | services | `services/` | 业务服务，现包含教师端地址配置、设备 IP 运行态查询、启动恢复、统一自动重连、连接阶段会话预写入、发卷落库、按题答案本地读取、ACK 回写、pending/failed outbox flush 与重连后一轮 full 同步调度 |
+| repos | `repos/` | 数据访问层，负责数据库操作，包括考试会话、考试快照、本地答案、同步队列和教师端地址的 CRUD 操作 |
+=======
+| services | `services/` | 业务服务，现包含教师端地址配置、设备 IP 运行态查询、启动恢复、统一自动重连、连接阶段会话预写入、试卷包接收与开考物化、按题答案本地读取、ACK 回写、pending/failed outbox flush 与重连后一轮 full 同步调度 |
+>>>>>>> v0.1.1-dev
 | schemas | `schemas/` | 控制协议与网络协议结构 |
 | state | `state.rs` | 应用共享状态 |
 | db | `db/` | 本地数据库与实体 |
@@ -521,6 +542,7 @@ graph TD
     SNet[network]
     STransport[network/transport]
     SSvc[services]
+    SRepo[repos]
     SSchema[schemas]
     SState[state]
     SDb[db]
@@ -543,10 +565,11 @@ graph TD
     SNet --> SSvc
     SNet --> SUtils
     SNet --> SState
-    SSvc --> SDb
-    SSvc --> SAnswer
+    SSvc --> SRepo
     SSvc --> SState
     SSvc --> SNet
+    SRepo --> SDb
+    SRepo --> SAnswer
     SState --> SDb
     SState --> SConfig
 ```
@@ -565,10 +588,11 @@ graph TD
 | controllers | entry、student-frontend invoke | services、schemas |
 | network | entry、commands、services | transport、schemas、services、utils、state |
 | network-transport | network | tokio-tungstenite、TcpListener/TcpStream 细节 |
-| services | commands、controllers、network | db、state、network |
+| services | commands、controllers、network | repos、state、network |
+| repos | services | db、state |
 | schemas | commands、controllers、network | 0 |
 | state | entry、commands、network、services | db、config |
-| db | state、services | 0 |
+| db | state、repos | 0 |
 | config | state | 0 |
 | utils | network | 0 |
 
@@ -579,9 +603,10 @@ graph TD
 - 若任务是“学生端接收教师下发地址或控制消息”，先看 `network/control_server.rs`。
 - 若任务是“设备 IP 获取异常 / discovery ACK IP 不准确 / Header 设备 IP 未知”，先看 `controllers/device_controller.rs`、`services/device_service.rs`、`network/device_network.rs`、`network/discovery_listener.rs`。
 - 若任务是“学生端 WS connect / writer loop 或 TCP bind/read/write 细节”，先看 `network/transport/`。
-- 若任务是“本地缓存与地址持久化”，先看 `services/`、`db/`。
+- 若任务是“本地缓存与地址持久化”，先看 `services/`、`repos/`、`db/`。
+- 若任务是“数据访问层操作”，先看 `repos/` 目录下的相关文件，如 `exam_session_repo.rs`、`local_answer_repo.rs` 等。
 - 若任务是“IPC 命令与前端桥接”，先看 `commands.rs` 与 `controllers/`。
-- 若任务是“学生端为何收不到试卷”，先看 `network/control_server.rs`、`services/exam_runtime_service.rs`、`commands.rs`，确认 `DISTRIBUTE_EXAM_PAPER` 是否收到、`exam_sessions/exam_snapshots` 是否落库、`get_current_exam_bundle` 是否能读到数据。
+- 若任务是“学生端为何收不到试卷”，先看 `network/ws_client.rs`、`services/exam_runtime_service.rs`、`commands.rs`，确认 `PaperPackageManifest/PaperPackageChunk` 是否收到、`exam_snapshots.package_status` 是否进入 `received`、`get_current_exam_bundle` 是否能读到数据。
 - 若任务是“学生端连接设备时是否已经建立本地会话”，先看 `network/control_server.rs` 中 `APPLY_TEACHER_ENDPOINTS` 分支和 `services/exam_runtime_service.rs::upsert_connected_session`。
 - 若任务是“为什么同 exam_id 再发卷没有覆盖本地考试标题 / 学生信息”，先看 `services/exam_runtime_service.rs::upsert_distribution` 中按 `exam_id` 的保护逻辑。
 - 若任务是“为什么 discovery 回包 IP 和 Header 设备 IP 不一致”，先核对两条链是否都已改为复用 `network/device_network.rs::resolve_device_ip`，以及前端是否已通过 `device_ip_updated` 事件刷新 `deviceStore.ip`。
@@ -655,12 +680,14 @@ graph TD
 |------|------|
 | 连接考生设备 / 分配页一键连接 | teacher-frontend `pages/DeviceAssign` + `hooks/useDeviceAssign.ts` + teacher-rust `controllers/student_exam_controller.rs` |
 | 连接状态四态 / 心跳超时 | teacher-rust `services/student_exam_service.rs` + `state.rs` + teacher-frontend `hooks/useDeviceAssign.ts` / `hooks/useMonitor.ts` |
+| 题目列表 / 题库资源包导出 / 清空后回导入全局题库 | teacher-frontend `pages/QuestionBank` + `services/questionBankEditorService.ts` + `services/questionService.ts` + teacher-rust `controllers/question_bank_controller.rs` + `services/question_bank_service.rs` + `repos/question_bank_repo.rs` |
+| 按考试导入资源包到 `questions` | teacher-frontend `pages/QuestionImport` + `hooks/useQuestion.ts` + `services/questionService.ts` + teacher-rust `controllers/question_controller.rs` + `services/question_service.rs` |
 | 考试管理页设备状态 / 四态状态不一致 | teacher-frontend `pages/ExamManage` + `hooks/useExamManage.ts` + `hooks/useDeviceAssign.ts` + teacher-rust `controllers/student_exam_controller.rs` |
 | 心跳到了但 UI 未更新 | teacher-rust `controllers/student_exam_controller.rs` + `network/ws_server.rs`，重点检查 `student_id` 映射 |
-| 分发试卷 / 发卷 0/x / 连接被拒绝 10061 | teacher-frontend `pages/ExamManage` + `hooks/useExamManage.ts` + `services/studentService.ts` + teacher-rust `services/student_exam_service.rs` + `network/student_control_client.rs` |
+| 分发试卷 / 发卷 0/x / 试卷包 ACK 超时 | teacher-frontend `pages/ExamManage` + `hooks/useExamManage.ts` + `services/studentService.ts` + teacher-rust `services/student_exam_service.rs` + `network/ws_server.rs` + student-rust `network/ws_client.rs` |
 | 结束考试 / final 同步未完成 / 结束后仍收答案 | teacher-frontend `pages/ExamManage` + `hooks/useExamManage.ts` + `services/studentService.ts` + teacher-rust `controllers/student_exam_controller.rs` + `services/student_exam_service.rs` + `network/ws_server.rs` + student-rust `network/ws_client.rs` + `services/exam_runtime_service.rs` |
 | 成绩报告 / 统计成绩 / 导出成绩 | teacher-frontend `pages/Report` + `hooks/useReport.ts` + `services/studentService.ts` + teacher-rust `controllers/student_exam_controller.rs` + `services/student_exam_service.rs` + `repos/student_exam_repo.rs` |
-| 学生端未收到试卷 / 未显示已发卷 | student-rust `network/control_server.rs` + `services/exam_runtime_service.rs` + student-frontend `store/examStore.ts` + `App.tsx` |
+| 学生端未收到试卷 / 未显示已发卷 | student-rust `network/ws_client.rs` + `services/exam_runtime_service.rs` + student-frontend `store/examStore.ts` + `App.tsx` |
 | 开考后答题同步 / 教师端进度不更新 | teacher-rust `network/ws_server.rs` + `services/student_exam_service.rs` + `repos/student_exam_repo.rs` + student-rust `commands.rs` + `network/ws_client.rs` |
 | 学生端重启后答案不恢复 / 页面进度丢失 | student-frontend `pages/Exam/index.tsx` + `services/examRuntimeService.ts` + student-rust `services/exam_runtime_service.rs` |
 | tokio-tungstenite 封装 / WS transport / 握手下沉 | teacher-rust `network/transport/ws_transport.rs` + `network/ws_server.rs` + student-rust `network/transport/ws_transport.rs` + `network/ws_client.rs` |
@@ -677,12 +704,14 @@ graph TD
 | 教师端发现学生设备 IP / 学生端 Header 设备 IP | 适合排查 discovery ACK、学生端本机 IP 解析、教师地址下发以及 Header 设备 IP 展示是否同源。 | `doc/e2e/e2e-minimal-teacher-student-ip-chain.md` |
 | 分配页随机分配考生到设备 | 适合区分“教师端随机分配只更新 `student_exams.ip_addr`”与“学生端 `exam_sessions` 真正落库发生在后续链路”的边界。 | `doc/e2e/e2e-minimal-device-assign-student-session-chain.md` |
 | 分配页连接考生设备并在学生端预写入会话 | 适合排查 `APPLY_TEACHER_ENDPOINTS`、学生端 `teacher_endpoints` 落库、`exam_sessions` 预写入和 Header 会话信息展示。 | `doc/e2e/e2e-minimal-connect-student-device-chain.md` |
-| 教师端分发试卷到学生端本地落库 | 适合排查 `DISTRIBUTE_EXAM_PAPER` 控制链、`exam_sessions/exam_snapshots` 落库，以及“已收到试卷”页面状态的来源。 | `doc/e2e/e2e-minimal-exam-paper-distribution-chain.md` |
+| 教师端分发试卷到学生端接收试卷包 | 适合排查 `PaperPackageManifest/PaperPackageChunk/PaperPackageAck`、`exam_snapshots.package_*` 落库，以及“已收到试卷”页面状态的来源。 | `doc/e2e/e2e-minimal-exam-paper-distribution-chain.md` |
 | 学生端启动恢复 / 自动重连 / 本地会话与答案恢复 | 适合排查冷启动恢复、持续重连、同 endpoint 身份切换、页面答案回填，以及重连后的自愈前置链路。 | `doc/e2e/e2e-minimal-student-startup-reconnect-chain.md` |
-| 教师端开始考试后学生端按题同步答案并更新监考进度 | 适合排查 `EXAM_START`、按题 `ANSWER_SYNC`、细粒度 ACK、教师端进度聚合以及 Monitor / Report 的实时展示口径。 | `doc/e2e/e2e-minimal-answer-sync-progress-chain.md` |
+| 教师端开始考试后学生端按题同步答案并更新监考进度 | 适合排查 `EXAM_START`、开考前试卷包物化、按题 `ANSWER_SYNC`、细粒度 ACK、教师端进度聚合以及 Monitor / Report 的实时展示口径。 | `doc/e2e/e2e-minimal-answer-sync-progress-chain.md` |
 | 教师端异常恢复后学生端全量答案同步与 ACK 收敛 | 适合排查 full `ANSWER_SYNC`、`pending/failed` flush、ACK 收敛、部分成功 / 失败以及去重保护。 | `doc/e2e/e2e-minimal-answer-sync-ack-reconnect-chain.md` |
 | 教师端结束考试并触发学生端最终同步 | 适合排查 `FINAL_SYNC_REQUEST`、`EXAM_END`、学生端 `ended` 状态落库、教师端 final ACK 收敛，以及 `finished` 后拒收答案的门禁。 | `doc/e2e/e2e-minimal-end-exam-final-sync-chain.md` |
 | 教师端成绩报告统计与导出 | 适合排查 Report 页为何只显示进度不显示分值、为什么统计成绩未落库到 `score_summary`、为什么导出后状态未归档，以及导出位置提示来自哪里。 | `doc/e2e/e2e-minimal-score-report-chain.md` |
+| 教师端题目列表导出资源包并回导入全局题库 | 适合排查 QuestionBank 勾选导出、导入前确认弹窗、清空 `question_bank_items`、zip 结构、`question_bank.xlsx` 字段兼容以及图片路径回写。 | `doc/e2e/e2e-minimal-question-bank-package-chain.md` |
+| 教师端按考试导入题目资源包 | 适合排查 QuestionImport 选考试导入 zip、`questions` 覆盖写入、`content_image_paths` / `options.image_paths` 映射，以及后续发卷读取图片字段的上游来源。 | `doc/e2e/e2e-minimal-question-import-package-chain.md` |
 
 若现有任务改变了这些链路的入口、出口、关键持久化落点、主查询来源或页面验证面，应同步更新对应 e2e 文档，并回写本图谱中的业务映射。
 
@@ -699,14 +728,14 @@ graph TD
 7. 教师端“实时连接状态”不再是 `Monitor` 页独有逻辑，而是 `DeviceAssign + Monitor + ExamManage` 共用的跨层链路：前端 hooks -> `studentService.ts` -> `student_exam_controller` -> `student_exam_service` -> `state.connections`。
 8. 这条新链路的关键主键是 `student_id`，不是 `device_id`；如果连接下发或心跳聚合时混用两者，会出现“终端有心跳、UI 仍显示未连接”的典型错位问题。
 9. “连接考生设备”已不再只是教师地址下发链路：教师端 `DeviceAssign/useDeviceAssign/studentService` -> 教师端 `student_exam_controller/student_control_client` -> 学生端 `control_server/teacher_endpoints_service/exam_runtime_service::upsert_connected_session` -> 学生端前端 `get_current_exam_bundle/examStore/AppHeader`，形成“连接即预写入会话”的完整闭环。
-10. “分发试卷”仍是一条独立的跨端控制链路：教师端 `ExamManage/useExamManage/studentService` -> 教师端 `student_exam_controller/student_exam_service/student_control_client` -> 学生端 `control_server/exam_runtime_service::upsert_distribution` -> 学生端前端 `get_current_exam_bundle/examStore/App.tsx`。
-11. “开始考试 -> 按题作答 -> 教师端进度聚合”链路已收敛到 ACK 语义：学生端 `commands.rs::send_answer_sync` 仅把 outbox 标记为 `sent`，教师端 `network/ws_server.rs` 完成落库后返回 `ANSWER_SYNC_ACK`，学生端 `ws_client` 收到 ACK 再调用 `exam_runtime_service::mark_answers_synced` 回写本地状态；连接恢复后学生端还会触发一轮 full `ANSWER_SYNC` 并后台 flush pending/failed outbox，用于自愈断链窗口答案。
+10. “分发试卷”已从旧的 TCP 控制链改为试卷包 WebSocket 链路：教师端 `ExamManage/useExamManage/studentService` -> 教师端 `student_exam_controller/student_exam_service::build_exam_package_zip/ws_server` -> 学生端 `ws_client/exam_runtime_service::prepare_exam_package_receive + mark_exam_package_received` -> 学生端前端 `get_current_exam_bundle/examStore/App.tsx`。
+11. “开始考试 -> 按题作答 -> 教师端进度聚合”链路已进一步增加“开考前本地物化试卷包”的门禁：学生端 `ws_client` 收到 `EXAM_START` 后先在 `exam_runtime_service::mark_exam_started` 内调用 `materialize_exam_package_if_needed`，成功后才进入 `active`；随后答案同步链再按 ACK 语义收敛，本地 `commands.rs::send_answer_sync` 仅把 outbox 标记为 `sent`，教师端 `network/ws_server.rs` 完成落库后返回 `ANSWER_SYNC_ACK`，学生端 `ws_client` 收到 ACK 再调用 `exam_runtime_service::mark_answers_synced` 回写本地状态；连接恢复后学生端还会触发一轮 full `ANSWER_SYNC` 并后台 flush pending/failed outbox，用于自愈断链窗口答案。
 12. “结束考试 -> final 答案同步 -> 教师端 finished” 已形成新的跨端闭环：教师端 `ExamManage/useExamManage/studentService` -> 教师端 `student_exam_controller/student_exam_service/ws_server` -> 学生端 `ws_client/exam_runtime_service::send_current_session_answer_sync + mark_exam_ended` -> 教师端 `ws_server::persist_answer_sync` -> 教师端 `exam_service::update_exam_status(finished)`。
 13. 这条结束考试链路的状态门禁落在教师端 `network/ws_server.rs::persist_answer_sync`：当 `exams.status = finished` 时，教师端会直接拒收新的 `ANSWER_SYNC`，不再继续写 `answer_sheets` 与 `student_exam_progress`。
 14. 学生端“本地答案恢复”已经从纯会话恢复链中独立出来：启动后除了 `App.tsx/examStore` 恢复 `exam_sessions/exam_snapshots`，`pages/Exam/index.tsx` 还会通过 `getCurrentSessionAnswers -> get_current_session_answers -> ExamRuntimeService::get_current_session_answers` 把 `local_answers` 回填到页面选中态。
-15. 这两条链路共用学生端控制端口，因此端口配置必须一致；连接阶段与发卷阶段若使用不同控制端口，会出现“已连接但发卷 0/x”或 `10061` 的典型断点。
+15. 当前“连接考生设备”和“分发试卷”已经不再走同一传输：连接阶段仍复用学生端控制端口，发卷阶段则切到 WebSocket 试卷包下发；因此排查“已连接但发卷失败”时，要优先确认 WebSocket 身份绑定、manifest/chunk 发送与 ACK 收敛，而不是只看控制端口是否可达。
 16. 学生端 Header 当前已经不再依赖 `deviceStore.assignedStudent` 承载业务会话数据，而是通过 `examStore.currentSession` 读取考试标题和学生名称；教师端连接状态改为独立显示，不再作为业务会话信息的展示门控。
-17. 第二阶段已在学生端 `upsert_distribution` 中落地按 `exam_id` 的保护逻辑：命中同 `exam_id` 时保留本地 `exam_sessions` 基础信息，只更新或写入 `exam_snapshots`。
+17. 学生端当前仍保留 `upsert_distribution` 的按 `exam_id` 保护逻辑作为旧链兼容，但 2026-04-01 起发卷主链路已切换为 `prepare_exam_package_receive/mark_exam_package_received`，不再以 `upsert_distribution` 作为试卷接收的真实出口。
 18. 2026-03-22 起，学生端启动后会通过 `lib.rs -> ws_reconnect_service::bootstrap_from_local_state` 读取本地 `teacher_endpoints(is_master)` 与最近 `exam_sessions.student_id` 自动恢复连接目标；后续由 `ws_reconnect_service` 统一承接首次连接失败重试、断线后持续重连以及目标 endpoint 切换。
 19. 考试管理页现已把原先基于 `ip_addr` 的“已连接 / 未连接”二态展示替换为统一四态“设备状态”，并按 5 秒轮询复用同一状态查询链路，因此三个页面的状态口径已经完成前端统一。
 20. 2026-03-20 起，两端 Rust 网络层新增 `network/transport` 子层：教师端 `ws_server/student_control_client` 与学生端 `ws_client/control_server` 不再直接承载全部底层收发细节，而是把 WebSocket 握手 / 写循环与 TCP request-reply 的 connect、timeout、read/write 边界逐步下沉到 transport 薄封装。
@@ -715,6 +744,11 @@ graph TD
 23. 同日，学生端重连链与答案同步链已完成真正收敛：`ws_connected` 后会按当前会话触发一轮带冷却保护的 full `ANSWER_SYNC`，若同一 endpoint 下切换了 `student_id`，则会先强制断开旧连接再按新身份重连，避免心跳身份与答题会话串台。
 24. 2026-03-25 起，教师端 Report 页已不再只是读取进度的展示页，而是新增了“统计成绩 -> 写入 `score_summary` -> 导出成绩 -> 归档考试”的完整链路；对应前端入口收敛在 `pages/Report/useReport/studentService.ts`，后端入口收敛在 `student_exam_controller/student_exam_service/student_exam_repo`。
 25. 同日，成绩报告导出恢复为前端 `XLSX.writeFile` 触发本地下载，而下载位置提示通过教师端 Rust `resolve_report_download_path` 返回系统下载目录下的预期文件路径；因此“能否触发下载”和“提示给出的路径在哪里”已经拆成两条不同职责的子链路。
+26. 2026-04-01 起，教师端题目工具链新增“QuestionBank 勾选导出资源包 -> QuestionBank 确认后清空并导入全局题库”的前置闭环：前端通过 `questionService` 调用 `export_question_bank_package` 与 `import_question_bank_package`，后端由 `question_bank_service` 负责打包 `question_bank.xlsx + assets`、解压资源包、清空 `question_bank_items`，并把题目与图片路径重新写回题库表。
+27. 同日，`QuestionImport` 中按考试导入 zip 到 `questions` 的能力也被补齐为图片资源包链路：后端会把 `assets/content`、`assets/options` 复制到 `uploads/images/questions/{exam_id}/...`，并把 `content_image_paths`、选项 `image_paths` 写回 `questions`，供后续发卷时组装 `questions_payload`。
+28. 2026-04-01 起，学生端发卷阶段与开考阶段已经显式拆分：发卷只负责把 zip 试卷包通过 WebSocket 收到本地并把 `exam_snapshots.package_status` 标记为 `received`；开考时再由 `mark_exam_started -> materialize_exam_package_if_needed` 解压 `question_bank.xlsx + assets/*`、复制图片资源并生成 `questions_payload`，成功后才进入 `active`。
+29. 同日，学生端为试卷物化落地了新的本地资源链：`exam_question_assets` 负责记录按会话/题目维度的图片资产映射，`exam_snapshots` 的 `package_path/package_status/package_batch_id/package_sha256/package_received_at` 与 `assets_sync_status/assets_synced_at` 共同区分“试卷包已收到”和“试卷内容已物化”两个阶段。
+30. 因此当前仓库里“资源包导入”已经稳定分成两条不同出口：`QuestionBank` 写 `question_bank_items`，`QuestionImport` 写 `questions`；而“图片真正发到学生端并可在考试页显示”则要经过“教师端发卷 zip 包 -> 学生端开考时物化资源”这条独立链路，不能把教师端图片路径映射误认为学生端图片已可用。
 
 ---
 

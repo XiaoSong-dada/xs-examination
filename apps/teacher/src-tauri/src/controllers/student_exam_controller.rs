@@ -374,13 +374,14 @@ pub async fn resolve_report_download_path(
 
 #[tauri::command]
 pub async fn distribute_exam_papers_by_exam_id(
+    app_handle: tauri::AppHandle,
     state: State<'_, AppState>,
     payload: student_exam_schema::DistributeExamPapersByExamInput,
 ) -> Result<student_exam_schema::DistributeExamPapersOutput, String> {
     let pool = &state.db;
     let exam_id = payload.exam_id;
 
-    let result = student_exam_service::distribute_exam_papers_by_exam_id(pool, exam_id.clone())
+    let result = student_exam_service::distribute_exam_papers_by_exam_id(&app_handle, pool, exam_id.clone())
         .await
         .map_err(|err| err.to_string())?;
 

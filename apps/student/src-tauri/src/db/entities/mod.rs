@@ -1,5 +1,6 @@
 pub mod exam_sessions;
 pub mod exam_snapshots;
+pub mod exam_question_assets;
 pub mod local_answers;
 pub mod sync_outbox;
 pub mod runtime_kv;
@@ -7,6 +8,7 @@ pub mod teacher_endpoints;
 
 pub use exam_sessions::Entity as ExamSessions;
 pub use exam_snapshots::Entity as ExamSnapshots;
+pub use exam_question_assets::Entity as ExamQuestionAssets;
 pub use local_answers::Entity as LocalAnswers;
 pub use sync_outbox::Entity as SyncOutbox;
 pub use runtime_kv::Entity as RuntimeKv;

@@ -3,6 +3,7 @@ import {
   BarChartOutlined,
   ControlOutlined,
   DesktopOutlined,
+  FileTextOutlined,
   ImportOutlined,
   MonitorOutlined,
   TeamOutlined,
@@ -17,6 +18,7 @@ const menuItems = [
   { key: "/devices", icon: <DesktopOutlined />, label: "设备列表" },
 
   { key: "/students", icon: <TeamOutlined />, label: "学生列表" },
+  { key: "/questions", icon: <FileTextOutlined />, label: "题目列表" },
   {
     key: "/question/import",
     icon: <ImportOutlined />,

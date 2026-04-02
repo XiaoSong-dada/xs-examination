@@ -130,6 +130,12 @@ xs-examination/
 │       │       ├── db/
 │       │       │   ├── migrations/
 │       │       │   └── models.rs
+│       │       ├── repos/
+│       │       │   ├── exam_session_repo.rs     # 考试会话数据访问
+│       │       │   ├── exam_snapshot_repo.rs     # 考试快照数据访问
+│       │       │   ├── local_answer_repo.rs      # 本地答案数据访问
+│       │       │   ├── sync_outbox_repo.rs      # 同步队列数据访问
+│       │       │   └── teacher_endpoint_repo.rs  # 教师端地址数据访问
 │       │       └── crypto.rs
 │       │
 │       └── src/                  # React 前端（学生端 UI）

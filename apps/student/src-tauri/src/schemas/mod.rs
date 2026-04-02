@@ -7,3 +7,4 @@ pub mod control_protocol;
 pub mod teacher_endpoint_schema;
 pub mod exam_runtime_schema;
 pub mod device_schema;
+pub mod file_asset_schema;
