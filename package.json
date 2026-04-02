@@ -5,7 +5,11 @@
     "dev:teacher": "pnpm --filter @xs/teacher tauri dev",
     "dev:student": "pnpm --filter @xs/student tauri dev",
     "build:teacher": "pnpm --filter @xs/teacher tauri build",
-    "build:student": "pnpm --filter @xs/student tauri build"
+    "build:student": "pnpm --filter @xs/student tauri build",
+    "build": "pnpm --filter @xs/teacher tauri build && pnpm --filter @xs/student tauri build",
+    "preview:teacher": "pnpm --filter @xs/teacher tauri preview",
+    "preview:student": "pnpm --filter @xs/student tauri preview",
+    "preview": "pnpm --filter @xs/teacher tauri preview && pnpm --filter @xs/student tauri preview"
   },
   "devDependencies": {
     "turbo": "^2.x"
