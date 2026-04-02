@@ -31,4 +31,8 @@ chrono = { version = "0.4", default-features = false, features = ["clock"] }
 uuid = { version = "1", features = ["v4"] }
 tokio-tungstenite = "0.24"
 futures-util = "0.3"
+sha2 = "0.10"
+base64 = "0.22"
+zip = { version = "0.6", default-features = false, features = ["deflate"] }
+calamine = "0.26"
 

@@ -1,0 +1,606 @@
+import {
+  Button,
+  Form,
+  Spin,
+  Input,
+  InputNumber,
+  message,
+  Modal,
+  Select,
+  Space,
+  Table,
+  Image,
+} from "antd";
+import type { ColumnsType } from "antd/es/table";
+import { useMemo, useRef, useState } from "react";
+import * as XLSX from "xlsx";
+import { formatTimestamp } from "@/utils/dayjs";
+
+import {
+  useDeleteQuestionBankItem,
+  useQuestionBankList,
+} from "@/hooks/useQuestionBank";
+import { useQuestionBankEditor } from "@/hooks/useQuestionBankEditor";
+import { pickQuestionPackageFilePath } from "@/services/fileDialogService";
+import {
+  exportQuestionBankPackage,
+  importQuestionBankPackage,
+} from "@/services/questionService";
+import { useTableHeight } from "@/hooks/useTableHeight";
+import {
+  collectQuestionBankExportImagePaths,
+  optionTypeOptions,
+  questionTypeOptions,
+  resolveQuestionBankErrorMessage,
+  toQuestionBankExportRows,
+} from "@/services/questionBankEditorService";
+import type {
+  IQuestionBankEditor,
+  QuestionBankItem,
+  QuestionBankOption,
+} from "@/types/main";
+
+/**
+ * 教师端题目列表页面，提供独立题库的查询、新增、编辑与删除。
+ *
+ * @returns 返回题目列表表格与题目编辑弹窗。
+ */
+export function QuestionBankPage() {
+  const {
+    loading,
+    inputKeyword,
+    setInputKeyword,
+    typeFilter,
+    setTypeFilter,
+    search,
+    reset,
+    total,
+    dataSource,
+    refresh,
+  } = useQuestionBankList();
+  const { deleteQuestionBankItem } = useDeleteQuestionBankItem();
+
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const toolbarRef = useRef<HTMLDivElement | null>(null);
+  const tableHeight = useTableHeight(containerRef, toolbarRef);
+  const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
+  const [exporting, setExporting] = useState(false);
+  const [importingPackage, setImportingPackage] = useState(false);
+  const {
+    form,
+    questionModal,
+    contentImagePaths,
+    watchedOptions,
+    contentPreviewMap,
+    optionPreviewMap,
+    contentPreviewLoading,
+    optionPreviewLoading,
+    handlePickContentImages,
+    handlePickOptionImages,
+    removeContentImage,
+    removeOptionImage,
+    handleSubmit,
+  } = useQuestionBankEditor(refresh);
+
+  const columns: ColumnsType<QuestionBankItem> = useMemo(
+    () => [
+      {
+        title: "题型",
+        dataIndex: "type",
+        key: "type",
+        width: 120,
+        render: (value: string) =>
+          questionTypeOptions.find((item) => item.value === value)?.label ??
+          value,
+      },
+      {
+        title: "题目内容",
+        dataIndex: "content",
+        key: "content",
+        ellipsis: true,
+      },
+      {
+        title: "答案",
+        dataIndex: "answer",
+        key: "answer",
+        width: 120,
+      },
+      {
+        title: "分值",
+        dataIndex: "score",
+        key: "score",
+        width: 100,
+      },
+      {
+        title: "更新时间",
+        dataIndex: "updated_at",
+        key: "updated_at",
+        width: 180,
+        render: (value: number) => formatTimestamp(value),
+      },
+      {
+        title: "操作",
+        key: "actions",
+        width: 180,
+        render: (_, record) => (
+          <Space>
+            <Button
+              type="link"
+              onClick={() =>
+                questionModal.openEdit({
+                  id: record.id,
+                  type: record.type,
+                  content: record.content,
+                  content_image_paths: record.content_image_paths,
+                  options: record.options,
+                  answer: record.answer,
+                  score: record.score,
+                  explanation: record.explanation,
+                  created_at: record.created_at,
+                  updated_at: record.updated_at,
+                })
+              }
+            >
+              编辑
+            </Button>
+            <Button
+              danger
+              type="link"
+              onClick={() => {
+                Modal.confirm({
+                  title: "确认删除题目",
+                  content: "删除后不可恢复，是否继续？",
+                  okText: "删除",
+                  cancelText: "取消",
+                  okButtonProps: { danger: true },
+                  onOk: async () => {
+                    try {
+                      await deleteQuestionBankItem(record.id);
+                      message.success("删除成功");
+                      await refresh();
+                    } catch (error) {
+                      message.error(resolveQuestionBankErrorMessage(error));
+                    }
+                  },
+                });
+              }}
+            >
+              删除
+            </Button>
+          </Space>
+        ),
+      },
+    ],
+    [deleteQuestionBankItem, questionModal, refresh],
+  );
+
+  const selectedItems = useMemo(
+    () =>
+      dataSource.filter((item) =>
+        selectedRowKeys.includes(item.id),
+      ),
+    [dataSource, selectedRowKeys],
+  );
+
+  const handleExport = async () => {
+    if (selectedItems.length === 0) {
+      message.warning("请先勾选要导出的题目");
+      return;
+    }
+
+    setExporting(true);
+    try {
+      const workbook = XLSX.utils.book_new();
+      const rows = toQuestionBankExportRows(selectedItems);
+      const worksheet = XLSX.utils.json_to_sheet(rows);
+      XLSX.utils.book_append_sheet(workbook, worksheet, "question_bank");
+
+      const workbookBinary = XLSX.write(workbook, {
+        bookType: "xlsx",
+        type: "array",
+      }) as ArrayBuffer;
+
+      const xlsxBytes = Array.from(new Uint8Array(workbookBinary));
+      const imageRelativePaths = collectQuestionBankExportImagePaths(selectedItems);
+
+      const now = new Date();
+      const timestamp = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}${String(
+        now.getDate(),
+      ).padStart(2, "0")}-${String(now.getHours()).padStart(2, "0")}${String(
+        now.getMinutes(),
+      ).padStart(2, "0")}${String(now.getSeconds()).padStart(2, "0")}`;
+      const fileName = `question-bank-export-${timestamp}.zip`;
+
+      const result = await exportQuestionBankPackage({
+        file_name: fileName,
+        xlsx_bytes: xlsxBytes,
+        image_relative_paths: imageRelativePaths,
+      });
+
+      message.success(
+        `导出成功：${selectedItems.length} 题，打包图片 ${result.packed_image_count} 张${
+          result.missing_image_count > 0
+            ? `，缺失 ${result.missing_image_count} 张`
+            : ""
+        }\n保存路径：${result.path}`,
+      );
+    } catch (error) {
+      message.error(resolveQuestionBankErrorMessage(error));
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  const handleImportPackage = async () => {
+    const packagePath = await pickQuestionPackageFilePath();
+    if (!packagePath) {
+      return;
+    }
+
+    Modal.confirm({
+      title: "确认导入资源包",
+      content: "导入将先清空当前题目列表中的全部数据，是否继续？",
+      okText: "确认导入",
+      cancelText: "取消",
+      okButtonProps: { danger: true, loading: importingPackage },
+      onOk: async () => {
+        setImportingPackage(true);
+        try {
+          const result = await importQuestionBankPackage({
+            package_path: packagePath,
+          });
+          message.success(`导入成功，共 ${result.imported_count} 条题目`);
+          await refresh();
+          setSelectedRowKeys([]);
+        } catch (error) {
+          message.error(resolveQuestionBankErrorMessage(error));
+        } finally {
+          setImportingPackage(false);
+        }
+      },
+    });
+  };
+
+  return (
+    <div className="space-y-4 h-full">
+      <div
+        ref={containerRef}
+        className="bg-white rounded-lg border border-gray-200 p-4 h-full"
+      >
+        <div
+          ref={toolbarRef}
+          className="bg-white rounded-lg flex flex-col gap-5 pb-4 w-full"
+        >
+          <div className="flex flex-wrap gap-4">
+            <div className="flex-1 min-w-64 max-w-xl">
+              <Input
+                value={inputKeyword}
+                allowClear
+                placeholder="按题目内容、答案或解析搜索"
+                onChange={(event) => setInputKeyword(event.target.value)}
+                onPressEnter={search}
+              />
+            </div>
+            <Select
+              className="w-44"
+              allowClear
+              placeholder="题型筛选"
+              value={typeFilter}
+              options={questionTypeOptions}
+              onChange={(value) => setTypeFilter(value)}
+            />
+            <Space>
+              <Button type="primary" onClick={search}>
+                搜索
+              </Button>
+              <Button onClick={reset}>重置</Button>
+            </Space>
+          </div>
+          <div className="flex items-center justify-between gap-4">
+            <Space>
+              <Button type="primary" onClick={questionModal.openCreate}>
+                新增题目
+              </Button>
+              <Button
+                loading={importingPackage}
+                onClick={() => void handleImportPackage()}
+              >
+                导入资源包
+              </Button>
+              <Button
+                onClick={() => void handleExport()}
+                disabled={selectedItems.length === 0}
+                loading={exporting}
+              >
+                导出题目
+              </Button>
+              <Button onClick={() => void refresh()}>刷新</Button>
+            </Space>
+            <div className="text-sm text-slate-500">共 {total} 条题目</div>
+          </div>
+        </div>
+
+        <Table<QuestionBankItem>
+          rowKey="id"
+          loading={loading}
+          dataSource={dataSource}
+          columns={columns}
+          rowSelection={{
+            selectedRowKeys,
+            onChange: (keys) => setSelectedRowKeys(keys),
+          }}
+          pagination={false}
+          scroll={{ y: tableHeight }}
+        />
+      </div>
+
+      <Modal
+        title={questionModal.modalTitle}
+        width={1080}
+        open={questionModal.visible}
+        onCancel={questionModal.close}
+        onOk={() => form.submit()}
+        okText="确认"
+        cancelText="取消"
+        destroyOnHidden
+      >
+        <Form<IQuestionBankEditor>
+          form={form}
+          layout="vertical"
+          initialValues={questionModal.formData ?? undefined}
+          onFinish={(values) => void handleSubmit(values)}
+        >
+          <Form.Item name="id" hidden>
+            <Input />
+          </Form.Item>
+
+          <div className="grid grid-cols-2 gap-4">
+            <Form.Item
+              name="type"
+              label="题型"
+              rules={[{ required: true, message: "请选择题型" }]}
+            >
+              <Select options={questionTypeOptions} />
+            </Form.Item>
+
+            <Form.Item
+              name="score"
+              label="分值"
+              rules={[{ required: true, message: "请输入分值" }]}
+            >
+              <InputNumber min={0} className="w-full" />
+            </Form.Item>
+          </div>
+
+          <Form.Item
+            name="content"
+            label="题目内容"
+            rules={[{ required: true, message: "请输入题目内容" }]}
+          >
+            <Input.TextArea rows={4} placeholder="请输入题干文本" />
+          </Form.Item>
+
+          <Form.Item label="题干图片" name="content_image_paths">
+            <div className="space-y-3">
+              <Space>
+                <Button onClick={() => void handlePickContentImages()}>
+                  选择图片
+                </Button>
+                <Button
+                  onClick={() => form.setFieldValue("content_image_paths", [])}
+                >
+                  清空
+                </Button>
+              </Space>
+              <div className="flex flex-wrap gap-2">
+                {contentImagePaths.length === 0 ? (
+                  <span className="text-sm text-slate-400">未选择题干图片</span>
+                ) : (
+                  <Image.PreviewGroup>
+                    {contentImagePaths.map((path: string) => (
+                      <div key={path} className="relative">
+                        {contentPreviewMap[path] ? (
+                          <Image
+                            src={contentPreviewMap[path]}
+                            alt={path}
+                            style={{
+                              maxWidth: "120px",
+                              maxHeight: "120px",
+                              objectFit: "cover",
+                            }}
+                          />
+                        ) : (
+                          <div className="w-[120px] h-[120px] border border-slate-200 rounded flex items-center justify-center text-xs text-slate-500 px-2 text-center">
+                            {contentPreviewLoading ? (
+                              <Spin size="small" />
+                            ) : (
+                              "预览不可用"
+                            )}
+                          </div>
+                        )}
+                        <Button
+                          size="small"
+                          shape="circle"
+                          danger
+                          className="absolute -top-2 -right-2"
+                          onClick={() => removeContentImage(path)}
+                        >
+                          ×
+                        </Button>
+                      </div>
+                    ))}
+                  </Image.PreviewGroup>
+                )}
+              </div>
+            </div>
+          </Form.Item>
+
+          <Form.List name="options">
+            {(fields, { add, remove }) => (
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <div className="text-sm font-medium text-slate-700">
+                    选项设置
+                  </div>
+                  <Button
+                    onClick={() =>
+                      add({
+                        key: `${fields.length + 1}`,
+                        text: "",
+                        option_type: "text",
+                        image_paths: [],
+                      })
+                    }
+                    type="primary"
+                  >
+                    添加选项
+                  </Button>
+                </div>
+
+                <div className="h-[300px] overflow-y-auto pr-1 space-y-4">
+                  {fields.map((field, index) => {
+                    const { key: _fieldReactKey, ...fieldProps } = field;
+                    const option = (watchedOptions[index] ?? {
+                      key: "",
+                      text: "",
+                      option_type: "text",
+                      image_paths: [],
+                    }) as QuestionBankOption;
+                    const optionImagePaths = option.image_paths ?? [];
+
+                    return (
+                      <div
+                        key={field.key}
+                        className="rounded-lg border border-slate-200 p-4 space-y-3"
+                      >
+                        <div className="grid grid-cols-[100px_1fr_180px_96px] gap-3 items-start">
+                          <Form.Item
+                            {...fieldProps}
+                            name={[field.name, "key"]}
+                            label="选项键"
+                            rules={[
+                              { required: true, message: "请输入选项键" },
+                            ]}
+                          >
+                            <Input placeholder="如 A" />
+                          </Form.Item>
+                          <Form.Item
+                            {...fieldProps}
+                            name={[field.name, "text"]}
+                            label="选项文本"
+                          >
+                            <Input placeholder="请输入选项文本" />
+                          </Form.Item>
+                          <Form.Item
+                            {...fieldProps}
+                            name={[field.name, "option_type"]}
+                            label="选项类型"
+                            rules={[
+                              { required: true, message: "请选择选项类型" },
+                            ]}
+                          >
+                            <Select options={optionTypeOptions} />
+                          </Form.Item>
+                          <div className="pt-[30px] text-right">
+                            <Button danger onClick={() => remove(field.name)}>
+                              删除
+                            </Button>
+                          </div>
+                        </div>
+
+                        <Form.Item
+                          className="space-y-3"
+                          {...fieldProps}
+                          name={[field.name, "image_paths"]}
+                        >
+                          <div className="space-y-2">
+                            <Space>
+                              <Button
+                                onClick={() =>
+                                  void handlePickOptionImages(index)
+                                }
+                              >
+                                选择附件图片
+                              </Button>
+                              <Button
+                                onClick={() =>
+                                  form.setFieldValue(
+                                    ["options", index, "image_paths"],
+                                    [],
+                                  )
+                                }
+                              >
+                                清空图片
+                              </Button>
+                            </Space>
+                            <div className="flex flex-wrap gap-2">
+                              {optionImagePaths.length === 0 ? (
+                                <span className="text-sm text-slate-400">
+                                  未选择附件图片
+                                </span>
+                              ) : (
+                                optionImagePaths.map((path) => (
+                                  <div
+                                    key={`${field.key}-${path}`}
+                                    className="border border-slate-200 rounded p-2 space-y-2"
+                                  >
+                                    <div className="relative">
+                                      {optionPreviewMap[path] ? (
+                                        <Image
+                                          src={optionPreviewMap[path]}
+                                          alt={path}
+                                          width={88}
+                                          height={88}
+                                          style={{ objectFit: "cover" }}
+                                        />
+                                      ) : (
+                                        <div className="w-[88px] h-[88px] border border-slate-200 rounded flex items-center justify-center text-xs text-slate-500">
+                                          {optionPreviewLoading
+                                            ? "加载中"
+                                            : "预览不可用"}
+                                        </div>
+                                      )}
+
+                                      <Button
+                                        size="small"
+                                        shape="circle"
+                                        danger
+                                        className="absolute -top-1 -right-1"
+                                        onClick={() =>
+                                          removeOptionImage(index, path)
+                                        }
+                                      >
+                                        ×
+                                      </Button>
+                                    </div>
+                                  </div>
+                                ))
+                              )}
+                            </div>
+                          </div>
+                        </Form.Item>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </Form.List>
+
+          <div className="grid grid-cols-2 gap-4 mt-4">
+            <Form.Item
+              name="answer"
+              label="答案"
+              rules={[{ required: true, message: "请输入答案" }]}
+            >
+              <Input placeholder="如 A 或 A,B" />
+            </Form.Item>
+            <Form.Item name="explanation" label="解析">
+              <Input.TextArea rows={3} placeholder="可选，填写题目解析" />
+            </Form.Item>
+          </div>
+        </Form>
+      </Modal>
+    </div>
+  );
+}

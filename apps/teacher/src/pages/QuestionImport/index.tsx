@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import { useAllExamList } from "@/hooks/useExam";
 import { useQuestion } from "@/hooks/useQuestion";
+import { pickQuestionPackageFilePath } from "@/services/fileDialogService";
 import { useTableHeight } from "@/hooks/useTableHeight";
 import type { Question } from "@/types/main";
 import { parseXlsxFile, type XlsxRow } from "@/utils/xlsx";
@@ -20,6 +21,7 @@ export function QuestionImportPage() {
     loading: questionLoading,
     fetchQuestionsByExamId,
     importQuestionsByExamId,
+    importQuestionPackageByExamId,
   } = useQuestion();
 
   const [selectedExamId, setSelectedExamId] = useState<string>();
@@ -150,6 +152,29 @@ export function QuestionImportPage() {
     }
   };
 
+  const handleImportPackage = async () => {
+    if (!selectedExamId) {
+      message.warning("请先选择考试");
+      return;
+    }
+
+    const packagePath = await pickQuestionPackageFilePath();
+    if (!packagePath) {
+      return;
+    }
+
+    setImporting(true);
+    try {
+      const inserted = await importQuestionPackageByExamId(selectedExamId, packagePath);
+      message.success(`资源包导入成功，共 ${inserted.length} 条题目`);
+    } catch (error) {
+      console.error("导入题目资源包失败", error);
+      message.error("导入题目资源包失败，请检查资源包格式");
+    } finally {
+      setImporting(false);
+    }
+  };
+
   const columns: ColumnsType<Question> = [
     {
       title: "序号",
@@ -241,6 +266,12 @@ export function QuestionImportPage() {
               onClick={handleSelectImportFile}
             >
               导入题库
+            </Button>
+            <Button
+              loading={importing}
+              onClick={() => void handleImportPackage()}
+            >
+              导入资源包
             </Button>
           </div>
         </div>

@@ -10,6 +10,7 @@ pub struct Model {
     #[sea_orm(column_name = "type")]
     pub r#type: String,
     pub content: String,
+    pub content_image_paths: Option<String>,
     pub options: Option<String>,
     pub answer: String,
     pub score: i32,
