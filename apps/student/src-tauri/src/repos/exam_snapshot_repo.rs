@@ -34,6 +34,13 @@ pub async fn upsert_snapshot(
             model.questions_payload = Set(payload.questions_payload.clone().into_bytes());
             model.downloaded_at = Set(payload.downloaded_at);
             model.expires_at = Set(payload.expires_at);
+            model.package_status = Set(Some("legacy_ready".to_string()));
+            model.package_path = Set(None);
+            model.package_batch_id = Set(None);
+            model.package_sha256 = Set(None);
+            model.package_received_at = Set(None);
+            model.assets_sync_status = Set(Some("pending".to_string()));
+            model.assets_synced_at = Set(None);
             model.updated_at = Set(ts);
             model.update(db).await?;
         }
@@ -44,6 +51,13 @@ pub async fn upsert_snapshot(
                 questions_payload: Set(payload.questions_payload.clone().into_bytes()),
                 downloaded_at: Set(payload.downloaded_at),
                 expires_at: Set(payload.expires_at),
+                package_path: Set(None),
+                package_status: Set(Some("legacy_ready".to_string())),
+                package_batch_id: Set(None),
+                package_sha256: Set(None),
+                package_received_at: Set(None),
+                assets_sync_status: Set(Some("pending".to_string())),
+                assets_synced_at: Set(None),
                 updated_at: Set(ts),
             };
             model.insert(db).await?;
@@ -61,6 +75,13 @@ pub fn snapshot_to_dto(snapshot: exam_snapshots::Model) -> ExamSnapshotDto {
         questions_payload: String::from_utf8_lossy(&snapshot.questions_payload).to_string(),
         downloaded_at: snapshot.downloaded_at,
         expires_at: snapshot.expires_at,
+        package_path: snapshot.package_path,
+        package_status: snapshot.package_status,
+        package_batch_id: snapshot.package_batch_id,
+        package_sha256: snapshot.package_sha256,
+        package_received_at: snapshot.package_received_at,
+        assets_sync_status: snapshot.assets_sync_status,
+        assets_synced_at: snapshot.assets_synced_at,
         updated_at: snapshot.updated_at,
     }
 }

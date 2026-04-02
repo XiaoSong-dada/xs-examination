@@ -2,18 +2,16 @@ use anyhow::{Context, Result};
 use calamine::{open_workbook_auto, Reader};
 use crate::network::protocol::AnswerItem;
 use serde::Deserialize;
+use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, QueryOrder, Set};
 use sha2::Digest;
 use std::collections::HashMap;
 use std::path::Path;
 use tauri::Manager;
 
-<<<<<<< fix-规范student代码分层
-=======
-use crate::db::entities::{exam_question_assets, exam_sessions, exam_snapshots, local_answers, sync_outbox};
+use crate::db::entities::{exam_question_assets, exam_sessions, exam_snapshots};
 use crate::network::protocol::PaperPackageManifestPayload;
->>>>>>> v0.1.1-dev
 use crate::schemas::control_protocol::{ApplyTeacherEndpointsPayload, DistributeExamPaperPayload};
-use crate::schemas::exam_runtime_schema::{CurrentExamBundleDto, LocalAnswerDto};
+use crate::schemas::exam_runtime_schema::{CurrentExamBundleDto, ExamSessionDto, ExamSnapshotDto, LocalAnswerDto};
 use crate::utils::datetime::now_ms;
 use crate::repos::{exam_session_repo, exam_snapshot_repo, local_answer_repo, sync_outbox_repo};
 
@@ -560,10 +558,6 @@ impl ExamRuntimeService {
         let state = app_handle.state::<crate::state::AppState>();
         let ts = now_ms();
 
-<<<<<<< fix-规范student代码分层
-        let target_session_id = exam_session_repo::upsert_distribution(&state.db, payload, ts).await?;
-        exam_snapshot_repo::upsert_snapshot(&state.db, &target_session_id, payload, ts).await?;
-=======
         let existing_same_exam = exam_sessions::Entity::find()
             .filter(exam_sessions::Column::ExamId.eq(payload.exam_id.clone()))
             .order_by_desc(exam_sessions::Column::UpdatedAt)
@@ -671,7 +665,6 @@ impl ExamRuntimeService {
                 model.insert(&state.db).await?;
             }
         }
->>>>>>> v0.1.1-dev
 
         Ok(())
     }
@@ -706,9 +699,6 @@ impl ExamRuntimeService {
             }
         }
 
-<<<<<<< fix-规范student代码分层
-        exam_session_repo::mark_session_started(&state.db, selected, start_time, end_time, now_ms()).await?;
-=======
         if let Some(snapshot) = exam_snapshots::Entity::find_by_id(selected.id.clone())
             .one(&state.db)
             .await?
@@ -725,13 +715,7 @@ impl ExamRuntimeService {
             }
         }
 
-        let mut model: exam_sessions::ActiveModel = selected.into();
-        model.status = Set("active".to_string());
-        model.started_at = Set(Some(start_time));
-        model.ends_at = Set(end_time);
-        model.updated_at = Set(now_ms());
-        model.update(&state.db).await?;
->>>>>>> v0.1.1-dev
+            exam_session_repo::mark_session_started(&state.db, selected, start_time, end_time, now_ms()).await?;
 
         Ok(true)
     }
@@ -818,10 +802,6 @@ impl ExamRuntimeService {
         }
 
         Ok(CurrentExamBundleDto {
-<<<<<<< fix-规范student代码分层
-            session: Some(exam_session_repo::session_to_dto(selected_session)),
-            snapshot: selected_snapshot.map(exam_snapshot_repo::snapshot_to_dto),
-=======
             session: Some(ExamSessionDto {
                 id: selected_session.id.clone(),
                 exam_id: selected_session.exam_id,
@@ -855,7 +835,6 @@ impl ExamRuntimeService {
                 assets_synced_at: item.assets_synced_at,
                 updated_at: item.updated_at,
             }),
->>>>>>> v0.1.1-dev
         })
     }
 }
