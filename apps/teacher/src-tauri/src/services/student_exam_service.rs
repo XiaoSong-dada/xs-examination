@@ -4,7 +4,7 @@ use rust_xlsxwriter::Workbook;
 use sea_orm::DatabaseConnection;
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
-use tauri::Manager;
+use tauri::{Manager, Emitter};
 use tokio::time::{sleep, Duration};
 
 use crate::models::student::Model as StudentModel;
@@ -117,16 +117,19 @@ pub async fn distribute_exam_papers_by_exam_id(
 ) -> Result<student_exam_schema::DistributeExamPapersOutput> {
     let exam = exam_service::get_exam_by_id(db, exam_id.clone()).await?;
     let questions = question_service::list_questions(db, exam_id.clone()).await?;
-    let assignments =
-        student_exam_repo::get_student_device_assignments_by_exam_id(db, &exam_id).await?;
+    let assignments = student_exam_repo::get_student_device_assignments_by_exam_id(db, &exam_id).await?;
 
     let request_id = uuid::Uuid::new_v4().to_string();
     let now = now_ms();
 
     let package = build_exam_package_zip(app_handle, &questions)?;
 
-    let mut results = Vec::new();
-    for item in assignments {
+    // 发送分发开始事件
+    send_distribute_progress(app_handle, &exam_id, 0, assignments.len(), "开始分发试卷".to_string());
+
+    // 并行处理每个学生的分发
+    let mut handles = Vec::new();
+    for (index, item) in assignments.iter().enumerate() {
         let Some(device_ip) = item.ip_addr.clone() else {
             continue;
         };
@@ -134,95 +137,133 @@ pub async fn distribute_exam_papers_by_exam_id(
             continue;
         }
 
-        let batch_id = format!("{}:{}", request_id, item.student_id);
-        let manifest_sent = crate::network::ws_server::send_paper_package_manifest_to_student(
-            app_handle,
-            PaperPackageManifestPayload {
-                exam_id: exam_id.clone(),
-                student_id: item.student_id.clone(),
-                session_id: item.student_exam_id.clone(),
-                batch_id: batch_id.clone(),
-                file_name: package.file_name.clone(),
-                total_bytes: package.total_bytes,
-                total_chunks: package.total_chunks,
-                sha256: package.sha256.clone(),
-                exam_title: exam.title.clone(),
-                assignment_status: "assigned".to_string(),
-                start_time: exam.start_time,
-                end_time: exam.end_time,
-                paper_version: Some(exam.updated_at.to_string()),
-                timestamp: now,
-            },
-        )?;
+        let app_handle_clone = app_handle.clone();
+        let exam_id_clone = exam_id.clone();
+        let exam_clone = exam.clone();
+        let package_clone = package.clone();
+        let item_clone = item.clone();
+        let request_id_clone = request_id.clone();
+        let total_students = assignments.len();
 
-        if !manifest_sent {
-            results.push(student_exam_schema::DistributeExamPapersResultItem {
-                student_exam_id: item.student_exam_id,
-                student_id: item.student_id,
-                device_ip,
-                success: false,
-                message: "学生端未在线，无法下发试卷包".to_string(),
-                session_id: None,
-            });
-            continue;
-        }
+        handles.push(tokio::spawn(async move {
+            let batch_id = format!("{}:{}", request_id_clone, item_clone.student_id);
+            let manifest_sent = crate::network::ws_server::send_paper_package_manifest_to_student(
+                &app_handle_clone,
+                PaperPackageManifestPayload {
+                    exam_id: exam_id_clone.clone(),
+                    student_id: item_clone.student_id.clone(),
+                    session_id: item_clone.student_exam_id.clone(),
+                    batch_id: batch_id.clone(),
+                    file_name: package_clone.file_name.clone(),
+                    total_bytes: package_clone.total_bytes,
+                    total_chunks: package_clone.total_chunks,
+                    sha256: package_clone.sha256.clone(),
+                    exam_title: exam_clone.title.clone(),
+                    assignment_status: "assigned".to_string(),
+                    start_time: exam_clone.start_time,
+                    end_time: exam_clone.end_time,
+                    paper_version: Some(exam_clone.updated_at.to_string()),
+                    timestamp: now_ms(),
+                },
+            );
 
-        let mut send_failed = None;
-        for (chunk_index, chunk) in package.zip_bytes.chunks(PACKAGE_CHUNK_SIZE).enumerate() {
-            let payload = PaperPackageChunkPayload {
-                exam_id: exam_id.clone(),
-                student_id: item.student_id.clone(),
-                session_id: item.student_exam_id.clone(),
-                batch_id: batch_id.clone(),
-                chunk_index: chunk_index as u32,
-                total_chunks: package.total_chunks,
-                content_base64: base64::engine::general_purpose::STANDARD.encode(chunk),
-                is_last: (chunk_index as u32 + 1) == package.total_chunks,
-                timestamp: now_ms(),
-            };
-
-            let sent = crate::network::ws_server::send_paper_package_chunk_to_student(app_handle, payload)?;
-            if !sent {
-                send_failed = Some("试卷包分片发送失败，连接已断开".to_string());
-                break;
+            if let Err(_) | Ok(false) = manifest_sent {
+                return student_exam_schema::DistributeExamPapersResultItem {
+                    student_exam_id: item_clone.student_exam_id,
+                    student_id: item_clone.student_id,
+                    device_ip: device_ip.clone(),
+                    success: false,
+                    message: "学生端未在线，无法下发试卷包".to_string(),
+                    session_id: None,
+                };
             }
-        }
 
-        if let Some(message) = send_failed {
-            results.push(student_exam_schema::DistributeExamPapersResultItem {
-                student_exam_id: item.student_exam_id,
-                student_id: item.student_id,
-                device_ip,
-                success: false,
-                message,
-                session_id: None,
-            });
-            continue;
-        }
+            // 并行发送所有chunk
+            let mut chunk_handles = Vec::new();
+            for (chunk_index, chunk) in package_clone.zip_bytes.chunks(PACKAGE_CHUNK_SIZE).enumerate() {
+                let app_handle_clone = app_handle_clone.clone();
+                let exam_id_clone = exam_id_clone.clone();
+                let item_clone = item_clone.clone();
+                let batch_id_clone = batch_id.clone();
+                let chunk_data: Vec<u8> = chunk.to_vec();
+                let total_chunks = package_clone.total_chunks;
 
-        let ack = wait_for_paper_package_ack(app_handle, &batch_id).await;
-        let (success, message) = match ack {
-            Some(raw) => {
-                if let Some(rest) = raw.strip_prefix("ok|") {
-                    (true, rest.split('|').next().unwrap_or("发卷成功").to_string())
-                } else if let Some(rest) = raw.strip_prefix("fail|") {
-                    (false, rest.split('|').next().unwrap_or("学生端接收失败").to_string())
-                } else {
-                    (false, "学生端ACK格式异常".to_string())
+                chunk_handles.push(tokio::spawn(async move {
+                    let payload = PaperPackageChunkPayload {
+                        exam_id: exam_id_clone,
+                        student_id: item_clone.student_id,
+                        session_id: item_clone.student_exam_id,
+                        batch_id: batch_id_clone,
+                        chunk_index: chunk_index as u32,
+                        total_chunks,
+                        content_base64: base64::engine::general_purpose::STANDARD.encode(&chunk_data),
+                        is_last: (chunk_index as u32 + 1) == total_chunks,
+                        timestamp: now_ms(),
+                    };
+
+                    crate::network::ws_server::send_paper_package_chunk_to_student(&app_handle_clone, payload)
+                }));
+            }
+
+            // 等待所有chunk发送完成
+            let mut send_failed = None;
+            for handle in chunk_handles {
+                if let Ok(Ok(false)) = handle.await {
+                    send_failed = Some("试卷包分片发送失败，连接已断开".to_string());
+                    break;
                 }
             }
-            None => (false, "等待学生端试卷包ACK超时".to_string()),
-        };
 
-        results.push(student_exam_schema::DistributeExamPapersResultItem {
-            student_exam_id: item.student_exam_id.clone(),
-            student_id: item.student_id.clone(),
-            device_ip,
-            success,
-            message,
-            session_id: Some(item.student_exam_id),
-        });
+            if let Some(message) = send_failed {
+                return student_exam_schema::DistributeExamPapersResultItem {
+                    student_exam_id: item_clone.student_exam_id,
+                    student_id: item_clone.student_id,
+                    device_ip: device_ip.clone(),
+                    success: false,
+                    message,
+                    session_id: None,
+                };
+            }
+
+            let ack = wait_for_paper_package_ack(&app_handle_clone, &batch_id).await;
+            let (success, message) = match ack {
+                Some(raw) => {
+                    if let Some(rest) = raw.strip_prefix("ok|") {
+                        (true, rest.split('|').next().unwrap_or("发卷成功").to_string())
+                    } else if let Some(rest) = raw.strip_prefix("fail|") {
+                        (false, rest.split('|').next().unwrap_or("学生端接收失败").to_string())
+                    } else {
+                        (false, "学生端ACK格式异常".to_string())
+                    }
+                }
+                None => (false, "等待学生端试卷包ACK超时".to_string()),
+            };
+
+            // 发送进度更新
+            send_distribute_progress(&app_handle_clone, &exam_id_clone, index + 1, total_students, 
+                format!("已完成 {} 的分发", item_clone.student_name));
+
+            student_exam_schema::DistributeExamPapersResultItem {
+                student_exam_id: item_clone.student_exam_id.clone(),
+                student_id: item_clone.student_id.clone(),
+                device_ip: device_ip.clone(),
+                success,
+                message,
+                session_id: Some(item_clone.student_exam_id),
+            }
+        }));
     }
+
+    // 收集所有结果
+    let mut results = Vec::new();
+    for handle in handles {
+        if let Ok(result) = handle.await {
+            results.push(result);
+        }
+    }
+
+    // 发送分发完成事件
+    send_distribute_progress(app_handle, &exam_id, results.len(), results.len(), "试卷分发完成".to_string());
 
     let success_count = results.iter().filter(|item| item.success).count();
     Ok(student_exam_schema::DistributeExamPapersOutput {
@@ -233,6 +274,31 @@ pub async fn distribute_exam_papers_by_exam_id(
     })
 }
 
+/// 发送分发进度事件
+fn send_distribute_progress(
+    app_handle: &tauri::AppHandle,
+    exam_id: &str,
+    completed: usize,
+    total: usize,
+    message: String,
+) {
+    let progress = if total > 0 {
+        (completed as f64 / total as f64) * 100.0
+    } else {
+        0.0
+    };
+
+    let _ = app_handle.emit("distribute-progress", serde_json::json!({
+        "exam_id": exam_id,
+        "completed": completed,
+        "total": total,
+        "progress": progress,
+        "message": message,
+        "timestamp": now_ms(),
+    }));
+}
+
+#[derive(Clone)]
 struct ExamPackageBuildResult {
     file_name: String,
     zip_bytes: Vec<u8>,

@@ -12,7 +12,6 @@ use crate::network::transport::tcp_request_reply::{
 };
 use crate::schemas::control_protocol::{
     DistributeExamPaperPayload, P2pChunkAck, P2pRequestChunkPayload, P2pRequestChunkRequest,
-    P2pStatusAck, P2pStatusQueryPayload, P2pStatusQueryRequest,
 };
 use crate::utils::datetime::now_ms;
 use crate::utils::p2p_chunker::{ChunkInfo, P2PChunker};
@@ -28,9 +27,7 @@ pub struct PeerInfo {
 /// 会话的 P2P 下载状态
 #[derive(Debug, Clone)]
 struct SessionDownloadState {
-    pub session_id: String,
     pub exam_id: String,
-    pub student_id: String,
     pub total_chunks: usize,
     pub received_chunks: DashMap<usize, ChunkInfo>,
     pub peers: Vec<PeerInfo>,
@@ -60,15 +57,12 @@ impl P2PClient {
         &self,
         session_id: String,
         exam_id: String,
-        student_id: String,
         total_chunks: usize,
         peers: Vec<PeerInfo>,
         paper_payload: DistributeExamPaperPayload,
     ) {
         let state = SessionDownloadState {
-            session_id: session_id.clone(),
             exam_id,
-            student_id,
             total_chunks,
             received_chunks: DashMap::new(),
             peers,
@@ -218,32 +212,7 @@ impl P2PClient {
         })
     }
 
-    /// 查询对等方的状态
-    async fn query_peer_status(
-        &self,
-        peer: &PeerInfo,
-        session_id: &str,
-    ) -> Result<P2pStatusAck> {
-        let addr = format!("{}:{}", peer.ip_addr, peer.control_port);
-        let mut stream = TcpStream::connect(&addr)
-            .await
-            .with_context(|| format!("Failed to connect to peer {}", addr))?;
 
-        let request_id = uuid::Uuid::new_v4().to_string();
-        let request = P2pStatusQueryRequest {
-            r#type: "P2P_STATUS_QUERY".to_string(),
-            request_id,
-            timestamp: now_ms(),
-            payload: P2pStatusQueryPayload {
-                session_id: session_id.to_string(),
-            },
-        };
-
-        write_json_request(&mut stream, &request).await?;
-        let response: P2pStatusAck = read_json_response(&mut stream).await?;
-
-        Ok(response)
-    }
 
     /// 组装完整试卷并保存到数据库
     async fn assemble_and_save(&self, session_id: &str, app_handle: &tauri::AppHandle) -> Result<()> {
